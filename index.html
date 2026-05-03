@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>🎬 Entertainment DB</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header>
+    <div class="header-inner">
+      <div class="logo">🎬 <span>Entertainment DB</span></div>
+      <div class="header-stats" id="headerStats">Loading...</div>
+    </div>
+  </header>
+
+  <div class="filters-bar">
+    <input type="text" id="searchInput" placeholder="Search title, cast, director..." />
+    <select id="typeFilter"><option value="">All Types</option></select>
+    <select id="genreFilter"><option value="">All Genres</option></select>
+    <select id="langFilter"><option value="">All Languages</option></select>
+    <select id="yearFilter"><option value="">All Years</option></select>
+    <select id="streamingFilter"><option value="">All Platforms</option></select>
+    <select id="ratingFilter">
+      <option value="">All VR Ratings</option>
+      <option value="9">9+</option>
+      <option value="8">8+</option>
+      <option value="7">7+</option>
+      <option value="6">6+</option>
+    </select>
+    <button id="clearBtn">✕ Clear</button>
+  </div>
+
+  <div class="results-bar">
+    <span id="resultCount"></span>
+    <div class="view-toggle">
+      <button class="view-btn active" id="gridViewBtn" title="Grid">⊞</button>
+      <button class="view-btn" id="listViewBtn" title="List">☰</button>
+    </div>
+  </div>
+
+  <main id="gallery" class="grid-view"></main>
+
+  <!-- Detail Modal -->
+  <div id="modal" class="modal-overlay" style="display:none">
+    <div class="modal-box">
+      <button class="modal-close" id="modalClose">✕</button>
+      <div class="modal-content" id="modalContent"></div>
+    </div>
+  </div>
+
+  <!-- ============================================================
+    OPTION A: Use static data.js (current approach, works offline)
+    ============================================================ -->
+  <!--
+  <script src="data.js"></script>
+  <script src="app.js"></script>
+  -->
+  <!-- ============================================================
+    OPTION B: Use Google Sheets API (live data, needs public sheet)
+    To switch: comment out Option A above, uncomment Option B below
+
+    IMPORTANT: First make your sheet public:
+    Google Sheet → Share → Anyone with the link → Viewer → Done
+    ============================================================ -->
+    
+  <script src="app.js"></script>
+  <script src="google-sheets-loader.js"></script>
+  
+
+</body>
+</html>
