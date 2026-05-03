@@ -24,9 +24,13 @@ Browse, search, and filter 2000+ titles in a clean UI.
 
 🗂️ Project Structure
 /project-root
+
   ├── index.html              # App structure
+  
   ├── style.css               # UI styling
+  
   ├── app.js                  # Core logic (filters, rendering)
+  
   ├── google-sheets-loader.js # Fetches live data from Google Sheets
 
   ⸻
