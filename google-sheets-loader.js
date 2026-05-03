@@ -51,9 +51,9 @@ const COL = {
   POSTER: 23,
   URL: 24,
   DATE_RATED: 25,
-  DECADE: 26,
-  RATING_DIFF: 27,
-  VOTE_CATEGORY: 28,
+  DECADE: 27,
+  RATING_DIFF: 28,
+  VOTE_CATEGORY: 29,
 };
 
 // Convert raw sheet row to app data object
