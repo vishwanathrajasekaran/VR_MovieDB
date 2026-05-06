@@ -2,15 +2,6 @@
  * ============================================================
  *  google-sheets-loader.js
  *  Loads Entertainment DB data from Google Sheets API
- *  Replace <script src="data.js"> with this file in index.html
- * ============================================================
- *
- *  HOW TO FIX THE 403 ERROR:
- *  Your API key is valid BUT your Google Sheet is set to "Restricted"
- *  (not public). The API key alone cannot access private sheets.
- *
- *  Fix: Open the Google Sheet → Share → Anyone with the link → Viewer → Done
- *  Then this file will work automatically.
  * ============================================================
  */
 
@@ -23,7 +14,6 @@ const SHEETS_CONFIG = {
 const SHEETS_URL = `https://sheets.googleapis.com/v4/spreadsheets/${SHEETS_CONFIG.SHEET_ID}/values/${SHEETS_CONFIG.SHEET_NAME}?key=${SHEETS_CONFIG.API_KEY}`;
 
 // Column index map (matches your sheet's column order)
-// Edit these if your column order changes
 const COL = {
   TITLE: 0,
   ORIGINAL_TITLE: 1,
@@ -51,9 +41,11 @@ const COL = {
   POSTER: 23,
   URL: 24,
   DATE_RATED: 25,
+  CONST: 26,
   DECADE: 27,
   RATING_DIFF: 28,
   VOTE_CATEGORY: 29,
+  EPISODES: 30,   // NEW: last column added by you
 };
 
 // Convert raw sheet row to app data object
@@ -88,18 +80,17 @@ function rowToMovie(row) {
     decade: row[COL.DECADE] || '',
     ratingDiff: row[COL.RATING_DIFF] || '',
     voteCategory: row[COL.VOTE_CATEGORY] || '',
+    episodes: row[COL.EPISODES] || '',   // NEW
   };
 }
 
-// Show loading state in header
 function showLoadingState() {
   const hs = document.getElementById('headerStats');
   if (hs) hs.textContent = 'Loading from Google Sheets...';
   const gallery = document.getElementById('gallery');
-  if (gallery) gallery.innerHTML = '<div class="loading">⏳ Loading your entertainment database...</div>';
+  if (gallery) gallery.innerHTML = '<div class="loading"><div class="loading-spinner"></div><p>Loading your entertainment database...</p></div>';
 }
 
-// Show error state
 function showErrorState(message) {
   const hs = document.getElementById('headerStats');
   if (hs) hs.textContent = '⚠️ Failed to load data';
@@ -110,13 +101,12 @@ function showErrorState(message) {
       <div style="font-size:0.9rem;max-width:400px;margin:0 auto;line-height:1.6;">
         <strong>Could not load data from Google Sheets</strong><br><br>
         ${message}<br><br>
-        <strong>Fix:</strong> Open your Google Sheet → Share → 
+        <strong>Fix:</strong> Open your Google Sheet → Share →
         "Anyone with the link" → Viewer → Done
       </div>
     </div>`;
 }
 
-// Main loader — called on page load
 async function loadFromGoogleSheets() {
   showLoadingState();
 
@@ -127,7 +117,6 @@ async function loadFromGoogleSheets() {
       showErrorState('The sheet is set to "Restricted". Make it publicly viewable.');
       return;
     }
-
     if (!response.ok) {
       showErrorState(`API error ${response.status}: ${response.statusText}`);
       return;
@@ -140,15 +129,13 @@ async function loadFromGoogleSheets() {
       return;
     }
 
-    // Skip header row (row 0), convert rest to movie objects
     const rows = data.values.slice(1);
     window.MOVIES_DATA = rows
-      .filter(row => row[COL.TITLE]) // skip empty rows
+      .filter(row => row[COL.TITLE])
       .map(rowToMovie);
 
     console.log(`✅ Loaded ${window.MOVIES_DATA.length} titles from Google Sheets`);
 
-    // Initialize app now that data is ready
     initFilters();
     applyFilters();
 
@@ -158,5 +145,4 @@ async function loadFromGoogleSheets() {
   }
 }
 
-// Start loading when DOM is ready
 document.addEventListener('DOMContentLoaded', loadFromGoogleSheets);
