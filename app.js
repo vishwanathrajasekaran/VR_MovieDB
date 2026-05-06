@@ -30,30 +30,74 @@ themeToggle.addEventListener('click', () => {
   }
 });
 
-// ===== STREAMING LOGO MAP =====
+// ===== STREAMING PLATFORM CONFIG =====
+// Brand colors per platform
 const PLATFORM_COLORS = {
   'Netflix':     '#E50914',
   'Prime Video': '#00A8E1',
   'Jio Hotstar': '#1F80E0',
-  'Apple TV+':   '#555555',
+  'Apple TV+':   '#888888',
   'SonyLIV':     '#003087',
   'Zee 5':       '#8B2FC9',
   'Sun NXT':     '#FF6B00',
-  'Aha':         '#FFCC00',
+  'Aha':         '#F5A623',
   'MX Player':   '#FF6600',
   'ErosNow':     '#F01C33',
-  'Mubi':        '#1D1D1D',
+  'Mubi':        '#FF1F1F',
+};
+
+// Tier-2 fallback logos: reliable hosted URLs per platform name
+// Used when the sheet row has a platform name but no logo URL filled in
+const PLATFORM_FALLBACK_LOGOS = {
+  'Netflix':     'https://upload.wikimedia.org/wikipedia/commons/thumb/0/08/Netflix_2015_logo.svg/120px-Netflix_2015_logo.svg.png',
+  'Prime Video': 'https://upload.wikimedia.org/wikipedia/commons/thumb/1/11/Amazon_Prime_Video_logo.svg/120px-Amazon_Prime_Video_logo.svg.png',
+  'Jio Hotstar': 'https://upload.wikimedia.org/wikipedia/commons/thumb/1/1e/Jio_Hotstar_logo.svg/120px-Jio_Hotstar_logo.svg.png',
+  'Apple TV+':   'https://upload.wikimedia.org/wikipedia/commons/thumb/2/28/Apple_TV_Plus_Logo.svg/120px-Apple_TV_Plus_Logo.svg.png',
+  'SonyLIV':     'https://upload.wikimedia.org/wikipedia/commons/thumb/d/d9/SonyLIV.svg/120px-SonyLIV.svg.png',
+  'Zee 5':       'https://upload.wikimedia.org/wikipedia/commons/thumb/6/6d/Zee5_logo.svg/120px-Zee5_logo.svg.png',
+  'Sun NXT':     'https://upload.wikimedia.org/wikipedia/commons/thumb/c/c1/Sun_NXT_logo.png/120px-Sun_NXT_logo.png',
+  'Aha':         'https://upload.wikimedia.org/wikipedia/commons/thumb/0/04/Aha_ott_logo.png/120px-Aha_ott_logo.png',
+  'MX Player':   'https://upload.wikimedia.org/wikipedia/commons/thumb/7/79/MX_Player_Logo.png/120px-MX_Player_Logo.png',
+  'Mubi':        'https://upload.wikimedia.org/wikipedia/commons/thumb/b/b9/Mubi_logo_2017.svg/120px-Mubi_logo_2017.svg.png',
 };
 
 function platformColor(name) {
   return PLATFORM_COLORS[name] || '#888';
 }
 
-function getStreamingBadge(name) {
+/**
+ * Resolve logo URL with 3-tier priority:
+ *   1. URL from sheet column (streamingLogoN) — most up-to-date
+ *   2. Hardcoded fallback for known platforms   — handles missing sheet URLs
+ *   3. null → caller renders colored dot        — unknown platforms
+ */
+function resolveLogoUrl(name, sheetLogoUrl) {
+  if (sheetLogoUrl && sheetLogoUrl.trim()) return sheetLogoUrl.trim();
+  if (PLATFORM_FALLBACK_LOGOS[name])       return PLATFORM_FALLBACK_LOGOS[name];
+  return null;
+}
+
+/**
+ * Build a streaming badge.
+ * @param {string} name        — Platform name (e.g. "Netflix")
+ * @param {string} sheetLogoUrl — Raw logo URL from sheet column (may be empty)
+ */
+function getStreamingBadge(name, sheetLogoUrl = '') {
   if (!name) return '';
-  const color = platformColor(name);
+  const color   = platformColor(name);
+  const logoUrl = resolveLogoUrl(name, sheetLogoUrl);
+
+  const logoHtml = logoUrl
+    ? `<img
+         src="${logoUrl}"
+         alt="${name}"
+         class="stream-logo-img"
+         onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'stream-dot',style:'background:${color}'}))"
+       >`
+    : `<span class="stream-dot" style="background:${color}"></span>`;
+
   return `<span class="badge stream" style="border-color:${color}40;background:${color}18;">
-    <span class="stream-dot" style="background:${color}"></span>${name}
+    ${logoHtml}${name}
   </span>`;
 }
 
@@ -177,8 +221,11 @@ function createCard(item) {
 
 // ===== MODAL =====
 function openModal(item) {
-  const streamBadges = [item.streaming1, item.streaming2, item.streaming3]
-    .filter(Boolean).map(s => getStreamingBadge(s)).join('');
+  const streamBadges = [
+    [item.streaming1, item.streamingLogo1],
+    [item.streaming2, item.streamingLogo2],
+    [item.streaming3, item.streamingLogo3],
+  ].filter(([name]) => name).map(([name, logo]) => getStreamingBadge(name, logo)).join('');
   const langBadges  = item.languages.split(',').filter(l=>l.trim()).map(l=>`<span class="badge lang">${l.trim()}</span>`).join('');
   const genreBadges = item.genres.split(',').filter(g=>g.trim()).map(g=>`<span class="badge genre">${g.trim()}</span>`).join('');
   const subGenreBadges = item.subGenre ? item.subGenre.split(',').filter(sg=>sg.trim()).map(sg=>`<span class="badge subgenre">${sg.trim()}</span>`).join('') : '';
