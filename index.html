@@ -1,18 +1,24 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>🎬 Vishwanath Movie DataBase</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <!-- Chart.js for stats -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
   <header>
     <div class="header-inner">
       <div class="logo">🎬 <span>Vishwanath Movie DataBase</span></div>
-      <div class="header-stats" id="headerStats">Loading...</div>
+      <div class="header-right">
+        <div class="header-stats" id="headerStats">Loading...</div>
+        <button id="statsBtn" class="icon-btn" title="Stats Dashboard">📊</button>
+        <button id="themeToggle" class="icon-btn" title="Toggle Theme">🌙</button>
+      </div>
     </div>
   </header>
 
@@ -43,6 +49,74 @@
 
   <main id="gallery" class="grid-view"></main>
 
+  <!-- ============================================================
+       STATS PANEL (slide-in from right)
+  ============================================================ -->
+  <div id="statsOverlay" class="stats-overlay" style="display:none">
+    <div class="stats-panel">
+      <div class="stats-header">
+        <h2 class="stats-title">📊 Dashboard</h2>
+        <button class="stats-close" id="statsClose">✕</button>
+      </div>
+
+      <!-- KPI row -->
+      <div class="kpi-row" id="kpiRow"></div>
+
+      <!-- Charts grid -->
+      <div class="charts-grid">
+
+        <!-- 1. Title Type breakdown -->
+        <div class="chart-card chart-card--half">
+          <div class="chart-card-title">Title Type</div>
+          <div class="chart-wrap"><canvas id="chartType"></canvas></div>
+        </div>
+
+        <!-- 2. Total Mins / Hrs Binged -->
+        <div class="chart-card chart-card--half">
+          <div class="chart-card-title">Time Binged by Type</div>
+          <div class="chart-wrap"><canvas id="chartBinge"></canvas></div>
+        </div>
+
+        <!-- 3. Top Genres -->
+        <div class="chart-card chart-card--full">
+          <div class="chart-card-title">Top Genres</div>
+          <div class="chart-wrap chart-wrap--tall"><canvas id="chartGenre"></canvas></div>
+        </div>
+
+        <!-- 4. Streaming Platforms -->
+        <div class="chart-card chart-card--half">
+          <div class="chart-card-title">Streaming Platforms</div>
+          <div class="chart-wrap"><canvas id="chartStream"></canvas></div>
+        </div>
+
+        <!-- 5. Episodes by Series -->
+        <div class="chart-card chart-card--half">
+          <div class="chart-card-title">Top Series by Episodes</div>
+          <div class="chart-wrap"><canvas id="chartEpisodes"></canvas></div>
+        </div>
+
+        <!-- 6. Release Year (stacked by type) -->
+        <div class="chart-card chart-card--full">
+          <div class="chart-card-title">Release Year by Type</div>
+          <div class="chart-wrap chart-wrap--tall"><canvas id="chartYear"></canvas></div>
+        </div>
+
+        <!-- 7. VR Rating distribution (by type) -->
+        <div class="chart-card chart-card--full">
+          <div class="chart-card-title">VR Rating Distribution by Type</div>
+          <div class="chart-wrap"><canvas id="chartRating"></canvas></div>
+        </div>
+
+        <!-- 8. Language breakdown -->
+        <div class="chart-card chart-card--full">
+          <div class="chart-card-title">Top Languages by Type</div>
+          <div class="chart-wrap chart-wrap--tall"><canvas id="chartLang"></canvas></div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
   <!-- Detail Modal -->
   <div id="modal" class="modal-overlay" style="display:none">
     <div class="modal-box">
@@ -51,24 +125,7 @@
     </div>
   </div>
 
-  <!-- ============================================================
-    OPTION A: Use static data.js (current approach, works offline)
-    ============================================================ -->
-  <!--
-  <script src="data.js"></script>
-  <script src="app.js"></script>
-  -->
-  <!-- ============================================================
-    OPTION B: Use Google Sheets API (live data, needs public sheet)
-    To switch: comment out Option A above, uncomment Option B below
-
-    IMPORTANT: First make your sheet public:
-    Google Sheet → Share → Anyone with the link → Viewer → Done
-    ============================================================ -->
-    
   <script src="app.js"></script>
   <script src="google-sheets-loader.js"></script>
-  
-
 </body>
 </html>
