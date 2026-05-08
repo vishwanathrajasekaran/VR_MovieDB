@@ -4,27 +4,59 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>🎬 Vishwanath Movie DataBase</title>
+  <!-- PWA -->
+  <link rel="manifest" href="manifest.json" />
+  <meta name="theme-color" content="#0a0a0f" id="themeColorMeta"/>
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="VR MovieDB" />
+  <link rel="apple-touch-icon" href="icons/icon-192.png" />
+  <!-- Fonts & Chart.js -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
-  <!-- Chart.js for stats -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
+
   <header>
     <div class="header-inner">
-      <div class="logo">🎬 <span>Vishwanath Movie DataBase</span></div>
+      <div class="logo">🎬 <span>VR MovieDB</span></div>
       <div class="header-right">
         <div class="header-stats" id="headerStats">Loading...</div>
-        <button id="statsBtn" class="icon-btn" title="Stats Dashboard">📊</button>
+        <button id="statsBtn"    class="icon-btn" title="Dashboard">📊</button>
+        <button id="timelineBtn" class="icon-btn" title="Timeline">📅</button>
+        <button id="calendarBtn" class="icon-btn" title="Binge Calendar">🗓️</button>
         <button id="themeToggle" class="icon-btn" title="Toggle Theme">🌙</button>
       </div>
     </div>
   </header>
 
+  <!-- TABS + SORT -->
+  <div class="main-tabs-bar">
+    <div class="main-tabs" id="mainTabs">
+      <button class="tab-btn active" data-tab="all">All</button>
+      <button class="tab-btn" data-tab="Movie">🎬 Movies</button>
+      <button class="tab-btn" data-tab="TV Series">📺 TV Series</button>
+      <button class="tab-btn" data-tab="TV Mini Series">🎞️ Mini Series</button>
+      <button class="tab-btn" data-tab="TV Movie">🎥 TV Movies</button>
+    </div>
+    <select id="sortSelect" class="sort-select">
+      <option value="">Sort: Default</option>
+      <option value="vr_desc">★ VR Rating ↓</option>
+      <option value="vr_asc">★ VR Rating ↑</option>
+      <option value="imdb_desc">IMDb ↓</option>
+      <option value="year_desc">Year: Newest</option>
+      <option value="year_asc">Year: Oldest</option>
+      <option value="runtime_desc">Runtime: Longest</option>
+      <option value="title_asc">Title A–Z</option>
+      <option value="date_desc">Recently Rated</option>
+    </select>
+  </div>
+
+  <!-- FILTERS -->
   <div class="filters-bar">
     <input type="text" id="searchInput" placeholder="Search title, cast, director..." />
-    <select id="typeFilter"><option value="">All Types</option></select>
     <select id="genreFilter"><option value="">All Genres</option></select>
     <select id="langFilter"><option value="">All Languages</option></select>
     <select id="yearFilter"><option value="">All Years</option></select>
@@ -39,6 +71,7 @@
     <button id="clearBtn">✕ Clear</button>
   </div>
 
+  <!-- RESULTS BAR -->
   <div class="results-bar">
     <span id="resultCount"></span>
     <div class="view-toggle">
@@ -49,75 +82,7 @@
 
   <main id="gallery" class="grid-view"></main>
 
-  <!-- ============================================================
-       STATS PANEL (slide-in from right)
-  ============================================================ -->
-  <div id="statsOverlay" class="stats-overlay" style="display:none">
-    <div class="stats-panel">
-      <div class="stats-header">
-        <h2 class="stats-title">📊 Dashboard</h2>
-        <button class="stats-close" id="statsClose">✕</button>
-      </div>
-
-      <!-- KPI row -->
-      <div class="kpi-row" id="kpiRow"></div>
-
-      <!-- Charts grid -->
-      <div class="charts-grid">
-
-        <!-- 1. Title Type breakdown -->
-        <div class="chart-card chart-card--half">
-          <div class="chart-card-title">Title Type</div>
-          <div class="chart-wrap"><canvas id="chartType"></canvas></div>
-        </div>
-
-        <!-- 2. Total Mins / Hrs Binged -->
-        <div class="chart-card chart-card--half">
-          <div class="chart-card-title">Time Binged by Type</div>
-          <div class="chart-wrap"><canvas id="chartBinge"></canvas></div>
-        </div>
-
-        <!-- 3. Top Genres -->
-        <div class="chart-card chart-card--full">
-          <div class="chart-card-title">Top Genres</div>
-          <div class="chart-wrap chart-wrap--tall"><canvas id="chartGenre"></canvas></div>
-        </div>
-
-        <!-- 4. Streaming Platforms -->
-        <div class="chart-card chart-card--half">
-          <div class="chart-card-title">Streaming Platforms</div>
-          <div class="chart-wrap"><canvas id="chartStream"></canvas></div>
-        </div>
-
-        <!-- 5. Episodes by Series -->
-        <div class="chart-card chart-card--half">
-          <div class="chart-card-title">Top Series by Episodes</div>
-          <div class="chart-wrap"><canvas id="chartEpisodes"></canvas></div>
-        </div>
-
-        <!-- 6. Release Year (stacked by type) -->
-        <div class="chart-card chart-card--full">
-          <div class="chart-card-title">Release Year by Type</div>
-          <div class="chart-wrap chart-wrap--tall"><canvas id="chartYear"></canvas></div>
-        </div>
-
-        <!-- 7. VR Rating distribution (by type) -->
-        <div class="chart-card chart-card--full">
-          <div class="chart-card-title">VR Rating Distribution by Type</div>
-          <div class="chart-wrap"><canvas id="chartRating"></canvas></div>
-        </div>
-
-        <!-- 8. Language breakdown -->
-        <div class="chart-card chart-card--full">
-          <div class="chart-card-title">Top Languages by Type</div>
-          <div class="chart-wrap chart-wrap--tall"><canvas id="chartLang"></canvas></div>
-        </div>
-
-      </div>
-    </div>
-  </div>
-
-  <!-- Detail Modal -->
+  <!-- DETAIL MODAL -->
   <div id="modal" class="modal-overlay" style="display:none">
     <div class="modal-box">
       <button class="modal-close" id="modalClose">✕</button>
@@ -125,7 +90,66 @@
     </div>
   </div>
 
+  <!-- EDIT MODAL -->
+  <div id="editModal" class="modal-overlay" style="display:none">
+    <div class="modal-box modal-box--wide">
+      <button class="modal-close" id="editModalClose">✕</button>
+      <div class="modal-content" id="editModalContent"></div>
+    </div>
+  </div>
+
+  <!-- STATS PANEL -->
+  <div id="statsOverlay" class="stats-overlay" style="display:none">
+    <div class="stats-panel">
+      <div class="stats-header">
+        <h2 class="stats-title">📊 Dashboard</h2>
+        <button class="stats-close" id="statsClose">✕</button>
+      </div>
+      <div class="kpi-row" id="kpiRow"></div>
+      <div class="charts-grid">
+        <div class="chart-card chart-card--half"><div class="chart-card-title">Title Type</div><div class="chart-wrap"><canvas id="chartType"></canvas></div></div>
+        <div class="chart-card chart-card--half"><div class="chart-card-title">Time Binged by Type</div><div class="chart-wrap"><canvas id="chartBinge"></canvas></div></div>
+        <div class="chart-card chart-card--full"><div class="chart-card-title">Top Genres</div><div class="chart-wrap chart-wrap--tall"><canvas id="chartGenre"></canvas></div></div>
+        <div class="chart-card chart-card--half"><div class="chart-card-title">Streaming Platforms</div><div class="chart-wrap"><canvas id="chartStream"></canvas></div></div>
+        <div class="chart-card chart-card--half"><div class="chart-card-title">Top Series by Episodes</div><div class="chart-wrap"><canvas id="chartEpisodes"></canvas></div></div>
+        <div class="chart-card chart-card--full"><div class="chart-card-title">Release Year by Type</div><div class="chart-wrap chart-wrap--tall"><canvas id="chartYear"></canvas></div></div>
+        <div class="chart-card chart-card--full"><div class="chart-card-title">VR Rating Distribution</div><div class="chart-wrap"><canvas id="chartRating"></canvas></div></div>
+        <div class="chart-card chart-card--full"><div class="chart-card-title">Top Languages by Type</div><div class="chart-wrap chart-wrap--tall"><canvas id="chartLang"></canvas></div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TIMELINE PANEL -->
+  <div id="timelineOverlay" class="stats-overlay" style="display:none">
+    <div class="stats-panel">
+      <div class="stats-header">
+        <h2 class="stats-title">📅 Watch Timeline</h2>
+        <button class="stats-close" id="timelineClose">✕</button>
+      </div>
+      <div id="timelineContent"></div>
+    </div>
+  </div>
+
+  <!-- BINGE CALENDAR PANEL -->
+  <div id="calendarOverlay" class="stats-overlay" style="display:none">
+    <div class="stats-panel">
+      <div class="stats-header">
+        <h2 class="stats-title">🗓️ Binge Calendar</h2>
+        <button class="stats-close" id="calendarClose">✕</button>
+      </div>
+      <div id="calendarContent"></div>
+    </div>
+  </div>
+
+  <!-- TOAST -->
+  <div id="toast" class="toast"></div>
+
   <script src="app.js"></script>
   <script src="google-sheets-loader.js"></script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => navigator.serviceWorker.register('sw.js'));
+    }
+  </script>
 </body>
 </html>
