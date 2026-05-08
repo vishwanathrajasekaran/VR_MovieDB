@@ -1,22 +1,39 @@
+// ================================================================
+//  VR MovieDB — app.js
+//  Features: Tabs, Sort, Hover Preview, Share, Edit→Sheets,
+//            Stats Dashboard, Timeline, Binge Calendar, PWA Toast
+// ================================================================
+
+const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzy4ye17WRiGplwHpNikOfUBRid-Opd7SA7y0bErhojmjUU9_KDU4Ydnb5FD64qODLpJQ/exec';
+
+// Column index map (must match google-sheets-loader.js COL)
+const COL_MAP = {
+  title: 0, originalTitle: 1, type: 2, year: 3, releaseDate: 4,
+  certification: 5, languages: 6, genres: 7, subGenre: 8, runtime: 9,
+  plot: 10, imdbRating: 11, vrRating: 12, totalVotes: 13,
+  cast: 14, directors: 15, writers: 16,
+  streamingLogo1: 17, streamingLogo2: 18, streamingLogo3: 19,
+  streaming1: 20, streaming2: 21, streaming3: 22,
+  poster: 23, url: 24, dateRated: 25, const: 26,
+  decade: 27, ratingDiff: 28, voteCategory: 29, episodes: 30,
+};
+
 // ===== STATE =====
 let filtered = [];
 let currentView = 'grid';
+let activeTab   = 'all';
+let activeSort  = '';
 const PAGE_SIZE = 60;
 let page = 0;
 let isLoading = false;
+let currentItem = null; // item open in modal
 
 // ===== THEME =====
 const html = document.documentElement;
 const themeToggle = document.getElementById('themeToggle');
-let isDark = true;
-
-// Load saved preference
-const savedTheme = localStorage.getItem('vr-theme');
-if (savedTheme) {
-  isDark = savedTheme === 'dark';
-  html.setAttribute('data-theme', savedTheme);
-  themeToggle.textContent = isDark ? '🌙' : '☀️';
-}
+let isDark = localStorage.getItem('vr-theme') !== 'light';
+html.setAttribute('data-theme', isDark ? 'dark' : 'light');
+themeToggle.textContent = isDark ? '🌙' : '☀️';
 
 themeToggle.addEventListener('click', () => {
   isDark = !isDark;
@@ -24,30 +41,18 @@ themeToggle.addEventListener('click', () => {
   html.setAttribute('data-theme', theme);
   localStorage.setItem('vr-theme', theme);
   themeToggle.textContent = isDark ? '🌙' : '☀️';
-  // Re-render charts if panel is open
-  if (document.getElementById('statsOverlay').style.display !== 'none') {
-    renderStats();
-  }
+  const meta = document.getElementById('themeColorMeta');
+  if (meta) meta.content = isDark ? '#0a0a0f' : '#f0f0f5';
+  if (document.getElementById('statsOverlay').style.display !== 'none') renderStats();
 });
 
-// ===== STREAMING PLATFORM CONFIG =====
-// Brand colors per platform
+// ===== PLATFORM CONFIG =====
 const PLATFORM_COLORS = {
-  'Netflix':     '#E50914',
-  'Prime Video': '#00A8E1',
-  'Jio Hotstar': '#1F80E0',
-  'Apple TV+':   '#888888',
-  'SonyLIV':     '#003087',
-  'Zee 5':       '#8B2FC9',
-  'Sun NXT':     '#FF6B00',
-  'Aha':         '#F5A623',
-  'MX Player':   '#FF6600',
-  'ErosNow':     '#F01C33',
-  'Mubi':        '#FF1F1F',
+  'Netflix':'#E50914','Prime Video':'#00A8E1','Jio Hotstar':'#1F80E0',
+  'Apple TV+':'#888','SonyLIV':'#003087','Zee 5':'#8B2FC9',
+  'Sun NXT':'#FF6B00','Aha':'#F5A623','MX Player':'#FF6600',
+  'ErosNow':'#F01C33','Mubi':'#FF1F1F',
 };
-
-// Tier-2 fallback logos: reliable hosted URLs per platform name
-// Used when the sheet row has a platform name but no logo URL filled in
 const PLATFORM_FALLBACK_LOGOS = {
   'Netflix':     'https://upload.wikimedia.org/wikipedia/commons/thumb/0/08/Netflix_2015_logo.svg/120px-Netflix_2015_logo.svg.png',
   'Prime Video': 'https://upload.wikimedia.org/wikipedia/commons/thumb/1/11/Amazon_Prime_Video_logo.svg/120px-Amazon_Prime_Video_logo.svg.png',
@@ -60,100 +65,76 @@ const PLATFORM_FALLBACK_LOGOS = {
   'MX Player':   'https://upload.wikimedia.org/wikipedia/commons/thumb/7/79/MX_Player_Logo.png/120px-MX_Player_Logo.png',
   'Mubi':        'https://upload.wikimedia.org/wikipedia/commons/thumb/b/b9/Mubi_logo_2017.svg/120px-Mubi_logo_2017.svg.png',
 };
-
-function platformColor(name) {
-  return PLATFORM_COLORS[name] || '#888';
+function platformColor(n) { return PLATFORM_COLORS[n] || '#888'; }
+function resolveLogoUrl(name, sheetUrl) {
+  if (sheetUrl && sheetUrl.trim()) return sheetUrl.trim();
+  return PLATFORM_FALLBACK_LOGOS[name] || null;
 }
-
-/**
- * Resolve logo URL with 3-tier priority:
- *   1. URL from sheet column (streamingLogoN) — most up-to-date
- *   2. Hardcoded fallback for known platforms   — handles missing sheet URLs
- *   3. null → caller renders colored dot        — unknown platforms
- */
-function resolveLogoUrl(name, sheetLogoUrl) {
-  if (sheetLogoUrl && sheetLogoUrl.trim()) return sheetLogoUrl.trim();
-  if (PLATFORM_FALLBACK_LOGOS[name])       return PLATFORM_FALLBACK_LOGOS[name];
-  return null;
-}
-
-/**
- * Build a streaming badge.
- * @param {string} name        — Platform name (e.g. "Netflix")
- * @param {string} sheetLogoUrl — Raw logo URL from sheet column (may be empty)
- */
 function getStreamingBadge(name, sheetLogoUrl = '') {
   if (!name) return '';
-  const color   = platformColor(name);
+  const color = platformColor(name);
   const logoUrl = resolveLogoUrl(name, sheetLogoUrl);
-
   const logoHtml = logoUrl
-    ? `<img
-         src="${logoUrl}"
-         alt="${name}"
-         class="stream-logo-img"
-         onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'stream-dot',style:'background:${color}'}))"
-       >`
+    ? `<img src="${logoUrl}" alt="${name}" class="stream-logo-img"
+         onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'stream-dot',style:'background:${color}'}))"> `
     : `<span class="stream-dot" style="background:${color}"></span>`;
-
-  return `<span class="badge stream" style="border-color:${color}40;background:${color}18;">
-    ${logoHtml}${name}
-  </span>`;
+  return `<span class="badge stream" style="border-color:${color}40;background:${color}18;">${logoHtml}${name}</span>`;
 }
 
-// ===== DOM =====
-const gallery        = document.getElementById('gallery');
-const searchInput    = document.getElementById('searchInput');
-const typeFilter     = document.getElementById('typeFilter');
-const genreFilter    = document.getElementById('genreFilter');
-const langFilter     = document.getElementById('langFilter');
-const yearFilter     = document.getElementById('yearFilter');
-const streamingFilter= document.getElementById('streamingFilter');
-const ratingFilter   = document.getElementById('ratingFilter');
-const clearBtn       = document.getElementById('clearBtn');
-const resultCount    = document.getElementById('resultCount');
-const modal          = document.getElementById('modal');
-const modalContent   = document.getElementById('modalContent');
-const modalClose     = document.getElementById('modalClose');
-const gridViewBtn    = document.getElementById('gridViewBtn');
-const listViewBtn    = document.getElementById('listViewBtn');
-const headerStats    = document.getElementById('headerStats');
-const statsBtn       = document.getElementById('statsBtn');
-const statsOverlay   = document.getElementById('statsOverlay');
-const statsClose     = document.getElementById('statsClose');
+// ===== DOM REFS =====
+const gallery         = document.getElementById('gallery');
+const searchInput     = document.getElementById('searchInput');
+const genreFilter     = document.getElementById('genreFilter');
+const langFilter      = document.getElementById('langFilter');
+const yearFilter      = document.getElementById('yearFilter');
+const streamingFilter = document.getElementById('streamingFilter');
+const ratingFilter    = document.getElementById('ratingFilter');
+const sortSelect      = document.getElementById('sortSelect');
+const clearBtn        = document.getElementById('clearBtn');
+const resultCount     = document.getElementById('resultCount');
+const headerStats     = document.getElementById('headerStats');
 
-// ===== STATS PANEL =====
-statsBtn.addEventListener('click', () => {
-  statsOverlay.style.display = 'block';
-  renderStats();
+// ===== TABS =====
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    activeTab = btn.dataset.tab;
+    applyFilters();
+  });
 });
-statsClose.addEventListener('click', () => { statsOverlay.style.display = 'none'; });
-statsOverlay.addEventListener('click', e => { if (e.target === statsOverlay) statsOverlay.style.display = 'none'; });
+
+sortSelect.addEventListener('change', () => { activeSort = sortSelect.value; applyFilters(); });
 
 // ===== INIT FILTERS =====
 function initFilters() {
-  const types = [...new Set(MOVIES_DATA.map(r => r.type).filter(Boolean))].sort();
-  const genres = [...new Set(MOVIES_DATA.flatMap(r => r.genres.split(',').map(g => g.trim())))].filter(Boolean).sort();
-  const langs  = [...new Set(MOVIES_DATA.flatMap(r => r.languages.split(',').map(l => l.trim())))].filter(Boolean).sort();
-  const years  = [...new Set(MOVIES_DATA.map(r => r.year).filter(Boolean))].sort((a,b) => b-a);
-  const plats  = [...new Set(MOVIES_DATA.flatMap(r => [r.streaming1, r.streaming2, r.streaming3]).filter(Boolean))].sort();
+  const data   = MOVIES_DATA;
+  const genres = [...new Set(data.flatMap(r => r.genres.split(',').map(g => g.trim())))].filter(Boolean).sort();
+  const langs  = [...new Set(data.flatMap(r => r.languages.split(',').map(l => l.trim())))].filter(Boolean).sort();
+  const years  = [...new Set(data.map(r => r.year).filter(Boolean))].sort((a,b) => b-a);
+  const plats  = [...new Set(data.flatMap(r => [r.streaming1,r.streaming2,r.streaming3]).filter(Boolean))].sort();
 
-  // Only add options that don't exist yet (safe for re-init)
-  types.forEach(t => { if (![...typeFilter.options].some(o=>o.value===t)) typeFilter.add(new Option(t,t)); });
   genres.forEach(g => { if (![...genreFilter.options].some(o=>o.value===g)) genreFilter.add(new Option(g,g)); });
-  langs.forEach(l  => { if (![...langFilter.options].some(o=>o.value===l)) langFilter.add(new Option(l,l)); });
-  years.forEach(y  => { if (![...yearFilter.options].some(o=>o.value===y)) yearFilter.add(new Option(y,y)); });
+  langs.forEach(l  => { if (![...langFilter.options].some(o=>o.value===l))  langFilter.add(new Option(l,l)); });
+  years.forEach(y  => { if (![...yearFilter.options].some(o=>o.value===y))  yearFilter.add(new Option(y,y)); });
   plats.forEach(p  => { if (![...streamingFilter.options].some(o=>o.value===p)) streamingFilter.add(new Option(p,p)); });
 
-  const movies = MOVIES_DATA.filter(r => r.type === 'Movie').length;
-  const series = MOVIES_DATA.filter(r => r.type !== 'Movie').length;
-  headerStats.textContent = `${MOVIES_DATA.length.toLocaleString()} titles · ${movies} Movies · ${series} Series`;
+  const movies = data.filter(r => r.type === 'Movie').length;
+  const series = data.filter(r => r.type !== 'Movie').length;
+  headerStats.textContent = `${data.length.toLocaleString()} titles · ${movies} Movies · ${series} Series`;
+
+  // Handle deep-link ?id=ttXXXXX
+  const params = new URLSearchParams(window.location.search);
+  const deepId = params.get('id');
+  if (deepId) {
+    const item = MOVIES_DATA.find(r => r.const === deepId);
+    if (item) setTimeout(() => openModal(item), 400);
+  }
 }
 
-// ===== FILTER LOGIC =====
+// ===== FILTER + SORT =====
 function applyFilters() {
   const q        = searchInput.value.toLowerCase().trim();
-  const type     = typeFilter.value;
   const genre    = genreFilter.value;
   const lang     = langFilter.value;
   const year     = yearFilter.value;
@@ -161,18 +142,35 @@ function applyFilters() {
   const minRating = ratingFilter.value ? parseFloat(ratingFilter.value) : null;
 
   filtered = MOVIES_DATA.filter(r => {
+    if (activeTab !== 'all' && r.type !== activeTab) return false;
     if (q && !r.title.toLowerCase().includes(q) &&
         !r.cast.toLowerCase().includes(q) &&
         !r.directors.toLowerCase().includes(q) &&
         !r.originalTitle.toLowerCase().includes(q)) return false;
-    if (type   && r.type !== type) return false;
     if (genre  && !r.genres.includes(genre)) return false;
     if (lang   && !r.languages.includes(lang)) return false;
     if (year   && r.year !== year) return false;
     if (stream && r.streaming1 !== stream && r.streaming2 !== stream && r.streaming3 !== stream) return false;
-    if (minRating !== null && (parseFloat(r.vrRating) < minRating)) return false;
+    if (minRating !== null && parseFloat(r.vrRating) < minRating) return false;
     return true;
   });
+
+  // Sort
+  if (activeSort) {
+    filtered = [...filtered].sort((a, b) => {
+      switch (activeSort) {
+        case 'vr_desc':      return (parseFloat(b.vrRating)||0) - (parseFloat(a.vrRating)||0);
+        case 'vr_asc':       return (parseFloat(a.vrRating)||0) - (parseFloat(b.vrRating)||0);
+        case 'imdb_desc':    return (parseFloat(b.imdbRating)||0) - (parseFloat(a.imdbRating)||0);
+        case 'year_desc':    return (parseInt(b.year)||0) - (parseInt(a.year)||0);
+        case 'year_asc':     return (parseInt(a.year)||0) - (parseInt(b.year)||0);
+        case 'runtime_desc': return (parseInt(b.runtime)||0) - (parseInt(a.runtime)||0);
+        case 'title_asc':    return a.title.localeCompare(b.title);
+        case 'date_desc':    return new Date(b.dateRated||0) - new Date(a.dateRated||0);
+        default: return 0;
+      }
+    });
+  }
 
   page = 0;
   gallery.innerHTML = '';
@@ -195,10 +193,13 @@ function renderPage() {
 function createCard(item) {
   const card = document.createElement('div');
   card.className = 'card';
-
-  const isTV = item.type && item.type !== 'Movie';
+  const isTV     = item.type && item.type !== 'Movie';
   const typeBadge = isTV ? `<span class="card-type-badge">${item.type.replace('TV ','')}</span>` : '';
   const epBadge   = (isTV && item.episodes) ? `<span class="card-episodes-badge">${item.episodes} ep</span>` : '';
+
+  // Hover preview dots
+  const platformDots = [item.streaming1, item.streaming2, item.streaming3].filter(Boolean)
+    .map(s => `<span class="hover-platform-dot" style="background:${platformColor(s)}" title="${s}"></span>`).join('');
 
   card.innerHTML = `
     ${typeBadge}${epBadge}
@@ -206,14 +207,17 @@ function createCard(item) {
       ? `<img class="card-poster" src="${item.poster}" alt="${escHtml(item.title)}" loading="lazy"
            onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'card-poster-placeholder',textContent:'🎬'}))">`
       : `<div class="card-poster-placeholder">🎬</div>`}
+    <div class="card-hover-preview">
+      ${item.plot ? `<div class="hover-plot">${escHtml(item.plot)}</div>` : ''}
+      <div class="hover-platforms">${platformDots}</div>
+    </div>
     <div class="card-info">
       <div class="card-title">${escHtml(item.title)}</div>
       <div class="card-meta">
         <span>${item.year || '—'}</span>
         <span class="card-vr">${item.vrRating ? '★ ' + item.vrRating : ''}</span>
       </div>
-    </div>
-  `;
+    </div>`;
 
   card.addEventListener('click', () => openModal(item));
   return card;
@@ -221,28 +225,30 @@ function createCard(item) {
 
 // ===== MODAL =====
 function openModal(item) {
+  currentItem = item;
   const streamBadges = [
     [item.streaming1, item.streamingLogo1],
     [item.streaming2, item.streamingLogo2],
     [item.streaming3, item.streamingLogo3],
-  ].filter(([name]) => name).map(([name, logo]) => getStreamingBadge(name, logo)).join('');
-  const langBadges  = item.languages.split(',').filter(l=>l.trim()).map(l=>`<span class="badge lang">${l.trim()}</span>`).join('');
-  const genreBadges = item.genres.split(',').filter(g=>g.trim()).map(g=>`<span class="badge genre">${g.trim()}</span>`).join('');
-  const subGenreBadges = item.subGenre ? item.subGenre.split(',').filter(sg=>sg.trim()).map(sg=>`<span class="badge subgenre">${sg.trim()}</span>`).join('') : '';
+  ].filter(([n]) => n).map(([n,l]) => getStreamingBadge(n, l)).join('');
+
+  const langBadges     = item.languages.split(',').filter(l=>l.trim()).map(l=>`<span class="badge lang">${l.trim()}</span>`).join('');
+  const genreBadges    = item.genres.split(',').filter(g=>g.trim()).map(g=>`<span class="badge genre">${g.trim()}</span>`).join('');
+  const subGenreBadges = item.subGenre ? item.subGenre.split(',').filter(s=>s.trim()).map(s=>`<span class="badge subgenre">${s.trim()}</span>`).join('') : '';
 
   const details = [
-    ['Type',          item.type],
-    ['Release Date',  item.releaseDate],
+    ['Type', item.type], ['Release Date', item.releaseDate],
     ['Certification', item.certification],
-    ['Runtime',       item.runtime ? item.runtime + ' mins' : null],
-    ['Episodes',      item.episodes || null],
-    ['Decade',        item.decade],
-    ['Total Votes',   item.totalVotes ? parseInt(item.totalVotes).toLocaleString() : null],
-    ['Cast',          item.cast],
-    ['Directors',     item.directors ? [...new Set(item.directors.split(',').map(d=>d.trim()))].join(', ') : null],
-    ['Writers',       item.writers   ? [...new Set(item.writers.split(',').map(w=>w.trim()))].join(', ')   : null],
+    ['Runtime', item.runtime ? item.runtime + ' mins' : null],
+    ['Episodes', item.episodes || null],
+    ['Decade', item.decade],
+    ['Total Votes', item.totalVotes ? parseInt(item.totalVotes).toLocaleString() : null],
+    ['Cast', item.cast],
+    ['Directors', item.directors ? [...new Set(item.directors.split(',').map(d=>d.trim()))].join(', ') : null],
+    ['Writers',   item.writers   ? [...new Set(item.writers.split(',').map(w=>w.trim()))].join(', ')   : null],
+    ['Rated On', item.dateRated || null],
     ['Vote Category', item.voteCategory],
-  ].filter(([,v]) => v).map(([l,v]) => `
+  ].filter(([,v])=>v).map(([l,v])=>`
     <div class="detail-row">
       <span class="detail-label">${l}</span>
       <span class="detail-value">${escHtml(String(v))}</span>
@@ -252,7 +258,7 @@ function openModal(item) {
   const diffText  = !isNaN(rd) ? (rd > 0 ? `+${rd}` : `${rd}`) : '';
   const diffColor = rd > 0 ? '#7ae87a' : rd < 0 ? '#e87a7a' : '#888';
 
-  modalContent.innerHTML = `
+  document.getElementById('modalContent').innerHTML = `
     <div class="modal-top">
       ${item.poster
         ? `<img class="modal-poster" src="${item.poster}" alt="${escHtml(item.title)}"
@@ -260,36 +266,157 @@ function openModal(item) {
         : `<div class="modal-poster-placeholder">🎬</div>`}
       <div class="modal-header">
         <div class="modal-title">${escHtml(item.title)}</div>
-        ${item.originalTitle && item.originalTitle !== item.title
-          ? `<div class="modal-subtitle">${escHtml(item.originalTitle)}</div>` : ''}
+        ${item.originalTitle && item.originalTitle !== item.title ? `<div class="modal-subtitle">${escHtml(item.originalTitle)}</div>` : ''}
         <div class="modal-ratings">
-          ${item.vrRating  ? `<div class="rating-pill"><span class="val">${item.vrRating}</span><span class="lbl">VR Rating</span></div>` : ''}
-          ${item.imdbRating? `<div class="rating-pill"><span class="val">${item.imdbRating}</span><span class="lbl">IMDb</span></div>` : ''}
-          ${diffText       ? `<div class="rating-pill"><span class="val" style="color:${diffColor}">${diffText}</span><span class="lbl">Diff</span></div>` : ''}
-          ${item.episodes  ? `<div class="rating-pill"><span class="val" style="color:#4be8b8">${item.episodes}</span><span class="lbl">Episodes</span></div>` : ''}
+          ${item.vrRating   ? `<div class="rating-pill"><span class="val">${item.vrRating}</span><span class="lbl">VR Rating</span></div>` : ''}
+          ${item.imdbRating ? `<div class="rating-pill"><span class="val">${item.imdbRating}</span><span class="lbl">IMDb</span></div>` : ''}
+          ${diffText        ? `<div class="rating-pill"><span class="val" style="color:${diffColor}">${diffText}</span><span class="lbl">Diff</span></div>` : ''}
+          ${item.episodes   ? `<div class="rating-pill"><span class="val" style="color:#4be8b8">${item.episodes}</span><span class="lbl">Episodes</span></div>` : ''}
         </div>
-        ${streamBadges ? `
-          <div class="modal-section-label">🎬 Streaming On</div>
-          <div class="modal-badges stream-badges">${streamBadges}</div>` : ''}
+        ${streamBadges ? `<div class="modal-section-label">🎬 Streaming On</div><div class="modal-badges stream-badges">${streamBadges}</div>` : ''}
       </div>
     </div>
-
     ${item.plot ? `<div class="modal-plot">${escHtml(item.plot)}</div>` : ''}
-
-    ${langBadges ? `<div class="modal-badge-section"><div class="modal-section-label">🌐 Languages</div><div class="modal-badges">${langBadges}</div></div>` : ''}
-    ${genreBadges ? `<div class="modal-badge-section"><div class="modal-section-label">🎭 Genres</div><div class="modal-badges">${genreBadges}</div></div>` : ''}
+    ${langBadges     ? `<div class="modal-badge-section"><div class="modal-section-label">🌐 Languages</div><div class="modal-badges">${langBadges}</div></div>` : ''}
+    ${genreBadges    ? `<div class="modal-badge-section"><div class="modal-section-label">🎭 Genres</div><div class="modal-badges">${genreBadges}</div></div>` : ''}
     ${subGenreBadges ? `<div class="modal-badge-section"><div class="modal-section-label">🏷️ Sub-Genres</div><div class="modal-badges">${subGenreBadges}</div></div>` : ''}
-
     <div class="modal-details">${details}</div>
-    ${item.url ? `<a class="imdb-link" href="${item.url}" target="_blank" rel="noopener">⭐ View on IMDb</a>` : ''}
-  `;
+    <div class="modal-actions">
+      ${item.url ? `<a class="btn btn-imdb" href="${item.url}" target="_blank" rel="noopener">⭐ IMDb</a>` : ''}
+      <button class="btn btn-edit" onclick="openEditModal(currentItem)">✏️ Edit</button>
+      <button class="btn btn-share" onclick="shareTitle('${item.const || ''}','${escHtml(item.title)}')">🔗 Share</button>
+    </div>`;
 
-  modal.style.display = 'flex';
+  document.getElementById('modal').style.display = 'flex';
   document.body.style.overflow = 'hidden';
 }
 
 function closeModal() {
-  modal.style.display = 'none';
+  document.getElementById('modal').style.display = 'none';
+  document.body.style.overflow = '';
+}
+
+// ===== SHARE =====
+function shareTitle(constId, title) {
+  const base = window.location.origin + window.location.pathname;
+  const url  = constId ? `${base}?id=${constId}` : base;
+  navigator.clipboard.writeText(url).then(() => showToast(`🔗 Link copied for "${title}"`));
+}
+
+// ===== EDIT MODAL =====
+function openEditModal(item) {
+  if (!item) return;
+  closeModal();
+
+  document.getElementById('editModalContent').innerHTML = `
+    <div class="edit-form-title">✏️ Edit — ${escHtml(item.title)}</div>
+    <div class="edit-form" id="editForm">
+      ${ef('Title',          'title',          item.title,         'text')}
+      ${ef('Original Title', 'originalTitle',  item.originalTitle, 'text')}
+      ${ef('Type',           'type',           item.type,          'select', ['Movie','TV Series','TV Mini Series','TV Movie','Video','Short'])}
+      ${ef('Year',           'year',           item.year,          'text')}
+      ${ef('Release Date',   'releaseDate',    item.releaseDate,   'text')}
+      ${ef('Certification',  'certification',  item.certification, 'text')}
+      ${ef('Languages',      'languages',      item.languages,     'text')}
+      ${ef('Genres',         'genres',         item.genres,        'text')}
+      ${ef('Sub Genre',      'subGenre',       item.subGenre,      'text')}
+      ${ef('Runtime (mins)', 'runtime',        item.runtime,       'text')}
+      ${ef('Episodes',       'episodes',       item.episodes,      'text')}
+      ${ef('IMDb Rating',    'imdbRating',     item.imdbRating,    'text')}
+      ${ef('VR Rating',      'vrRating',       item.vrRating,      'text')}
+      ${ef('Decade',         'decade',         item.decade,        'text')}
+      ${ef('Streaming 1',    'streaming1',     item.streaming1,    'text')}
+      ${ef('Streaming 2',    'streaming2',     item.streaming2,    'text')}
+      ${ef('Streaming 3',    'streaming3',     item.streaming3,    'text')}
+      ${ef('Cast',           'cast',           item.cast,          'textarea')}
+      ${ef('Directors',      'directors',      item.directors,     'textarea')}
+      ${ef('Writers',        'writers',        item.writers,       'textarea')}
+      ${ef('Plot',           'plot',           item.plot,          'textarea')}
+      ${ef('Poster URL',     'poster',         item.poster,        'text')}
+      ${ef('IMDb URL',       'url',            item.url,           'text')}
+      ${ef('Date Rated',     'dateRated',      item.dateRated,     'text')}
+      <div class="edit-actions">
+        <button class="btn btn-save"   onclick="saveEdit('${item.const}')">💾 Save to Sheet</button>
+        <button class="btn btn-cancel" onclick="closeEditModal()">Cancel</button>
+        <div class="edit-saving" id="editSaving"><div class="saving-spinner"></div> Saving…</div>
+      </div>
+    </div>`;
+
+  document.getElementById('editModal').style.display = 'flex';
+  document.body.style.overflow = 'hidden';
+}
+
+// Helper: build one edit field
+function ef(label, field, value, type, options = []) {
+  const fullClass = ['cast','directors','writers','plot'].includes(field) ? 'full' : '';
+  const val = escHtml(value || '');
+  if (type === 'textarea') {
+    return `<div class="edit-group ${fullClass}">
+      <label class="edit-label">${label}</label>
+      <textarea class="edit-textarea" data-field="${field}">${val}</textarea>
+    </div>`;
+  }
+  if (type === 'select') {
+    const opts = options.map(o => `<option value="${o}" ${o === value ? 'selected' : ''}>${o}</option>`).join('');
+    return `<div class="edit-group ${fullClass}">
+      <label class="edit-label">${label}</label>
+      <select class="edit-select" data-field="${field}">${opts}</select>
+    </div>`;
+  }
+  return `<div class="edit-group ${fullClass}">
+    <label class="edit-label">${label}</label>
+    <input class="edit-input" data-field="${field}" type="text" value="${val}" />
+  </div>`;
+}
+
+async function saveEdit(constId) {
+  const form = document.getElementById('editForm');
+  const saving = document.getElementById('editSaving');
+  saving.classList.add('visible');
+
+  // Collect all field values
+  const updates = {};
+  form.querySelectorAll('[data-field]').forEach(el => {
+    const field = el.dataset.field;
+    const colIdx = COL_MAP[field];
+    if (colIdx !== undefined) updates[colIdx] = el.value;
+  });
+
+  // Also update in-memory MOVIES_DATA immediately
+  const itemIdx = MOVIES_DATA.findIndex(r => r.const === constId);
+
+  try {
+    const resp = await fetch(APPS_SCRIPT_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ const: constId, updates }),
+    });
+    const result = await resp.json();
+
+    if (result.success) {
+      // Patch in-memory data so UI reflects changes without reload
+      if (itemIdx !== -1) {
+        Object.entries(updates).forEach(([colIdx, val]) => {
+          const field = Object.keys(COL_MAP).find(k => COL_MAP[k] === parseInt(colIdx));
+          if (field) MOVIES_DATA[itemIdx][field] = val;
+        });
+      }
+      saving.classList.remove('visible');
+      closeEditModal();
+      showToast('✅ Saved to Google Sheets!');
+      applyFilters(); // re-render with updated data
+    } else {
+      throw new Error(result.error || 'Save failed');
+    }
+  } catch (err) {
+    saving.classList.remove('visible');
+    showToast(`❌ Error: ${err.message}`);
+    console.error('Save error:', err);
+  }
+}
+
+function closeEditModal() {
+  document.getElementById('editModal').style.display = 'none';
   document.body.style.overflow = '';
 }
 
@@ -297,381 +424,422 @@ function closeModal() {
 window.addEventListener('scroll', () => {
   if (isLoading) return;
   if (window.innerHeight + window.scrollY >= document.body.offsetHeight - 400) {
-    if (page * PAGE_SIZE < filtered.length) {
-      isLoading = true;
-      setTimeout(renderPage, 100);
-    }
+    if (page * PAGE_SIZE < filtered.length) { isLoading = true; setTimeout(renderPage, 100); }
   }
 });
 
 // ===== EVENTS =====
 let debounce;
-searchInput.addEventListener('input',   () => { clearTimeout(debounce); debounce = setTimeout(applyFilters, 250); });
-typeFilter.addEventListener('change',   applyFilters);
-genreFilter.addEventListener('change',  applyFilters);
-langFilter.addEventListener('change',   applyFilters);
-yearFilter.addEventListener('change',   applyFilters);
-streamingFilter.addEventListener('change', applyFilters);
-ratingFilter.addEventListener('change', applyFilters);
+searchInput.addEventListener('input', () => { clearTimeout(debounce); debounce = setTimeout(applyFilters, 250); });
+[genreFilter, langFilter, yearFilter, streamingFilter, ratingFilter].forEach(s => s.addEventListener('change', applyFilters));
 clearBtn.addEventListener('click', () => {
   searchInput.value = '';
-  [typeFilter, genreFilter, langFilter, yearFilter, streamingFilter, ratingFilter].forEach(s => s.value = '');
+  [genreFilter, langFilter, yearFilter, streamingFilter, ratingFilter].forEach(s => s.value = '');
   applyFilters();
 });
-modalClose.addEventListener('click', closeModal);
-modal.addEventListener('click', e => { if (e.target === modal) closeModal(); });
-document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeModal(); statsOverlay.style.display='none'; } });
+document.getElementById('modalClose').addEventListener('click', closeModal);
+document.getElementById('modal').addEventListener('click', e => { if (e.target === document.getElementById('modal')) closeModal(); });
+document.getElementById('editModalClose').addEventListener('click', closeEditModal);
+document.getElementById('editModal').addEventListener('click', e => { if (e.target === document.getElementById('editModal')) closeEditModal(); });
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') {
+    closeModal(); closeEditModal();
+    ['statsOverlay','timelineOverlay','calendarOverlay'].forEach(id => { document.getElementById(id).style.display = 'none'; });
+  }
+});
 
-gridViewBtn.addEventListener('click', () => {
-  currentView = 'grid';
-  gallery.className = 'grid-view';
-  gridViewBtn.classList.add('active');
-  listViewBtn.classList.remove('active');
+document.getElementById('gridViewBtn').addEventListener('click', () => {
+  currentView = 'grid'; gallery.className = 'grid-view';
+  document.getElementById('gridViewBtn').classList.add('active');
+  document.getElementById('listViewBtn').classList.remove('active');
   page = 0; gallery.innerHTML = ''; renderPage();
 });
-listViewBtn.addEventListener('click', () => {
-  currentView = 'list';
-  gallery.className = 'list-view';
-  listViewBtn.classList.add('active');
-  gridViewBtn.classList.remove('active');
+document.getElementById('listViewBtn').addEventListener('click', () => {
+  currentView = 'list'; gallery.className = 'list-view';
+  document.getElementById('listViewBtn').classList.add('active');
+  document.getElementById('gridViewBtn').classList.remove('active');
   page = 0; gallery.innerHTML = ''; renderPage();
 });
+
+// Panel buttons
+document.getElementById('statsBtn').addEventListener('click',    () => { openPanel('statsOverlay');    renderStats(); });
+document.getElementById('timelineBtn').addEventListener('click', () => { openPanel('timelineOverlay'); renderTimeline(); });
+document.getElementById('calendarBtn').addEventListener('click', () => { openPanel('calendarOverlay'); renderCalendar(); });
+['statsClose','timelineClose','calendarClose'].forEach(id => {
+  document.getElementById(id).addEventListener('click', () => document.getElementById(id.replace('Close','Overlay')).style.display = 'none');
+});
+['statsOverlay','timelineOverlay','calendarOverlay'].forEach(id => {
+  document.getElementById(id).addEventListener('click', e => { if (e.target === document.getElementById(id)) document.getElementById(id).style.display = 'none'; });
+});
+
+function openPanel(id) {
+  ['statsOverlay','timelineOverlay','calendarOverlay'].forEach(p => document.getElementById(p).style.display = 'none');
+  document.getElementById(id).style.display = 'block';
+}
+
+// ===== TOAST =====
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 3000);
+}
 
 // ===== UTILS =====
 function escHtml(str) {
   if (!str) return '';
   return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
-
-function topN(map, n = 12) {
-  return Object.entries(map)
-    .filter(([k]) => k && k !== 'undefined')
-    .sort((a,b) => b[1]-a[1])
-    .slice(0, n);
+function topN(map, n=12) {
+  return Object.entries(map).filter(([k])=>k&&k!=='undefined').sort((a,b)=>b[1]-a[1]).slice(0,n);
 }
 
-function getCSS(v) { return getComputedStyle(document.documentElement).getPropertyValue(v).trim(); }
-
-// ===== CHART REGISTRY (destroy before re-creating) =====
+// ================================================================
+//  STATS DASHBOARD
+// ================================================================
 const chartInstances = {};
 function destroyChart(id) { if (chartInstances[id]) { chartInstances[id].destroy(); delete chartInstances[id]; } }
 
-// ===== STATS ENGINE =====
-function computeStats() {
-  const data = MOVIES_DATA;
-  const types = [...new Set(data.map(r=>r.type).filter(Boolean))].sort();
+function chartColors(n) {
+  const base = ['#e8b84b','#e85b4b','#4be8b8','#4b8be8','#b84be8','#e84bb8','#b8e84b','#4be84b','#e8984b','#4bdde8','#e84b6f','#8be84b'];
+  const out = []; for (let i=0;i<n;i++) out.push(base[i%base.length]); return out;
+}
+function typeColorMap(types) { const c=chartColors(types.length),m={}; types.forEach((t,i)=>m[t]=c[i]); return m; }
+function chartDefaults() {
+  return {
+    textColor:  isDark ? '#e8e8f0' : '#111118',
+    mutedColor: isDark ? '#888'    : '#666',
+    gridColor:  isDark ? '#2a2a3a' : '#d0d0de',
+    bgColor:    isDark ? '#13131a' : '#ffffff',
+  };
+}
 
-  // --- KPIs ---
+function computeStats() {
+  const data  = MOVIES_DATA;
+  const types = [...new Set(data.map(r=>r.type).filter(Boolean))].sort();
   const totalTitles   = data.length;
   const totalMovies   = data.filter(r=>r.type==='Movie').length;
   const totalSeries   = data.filter(r=>r.type!=='Movie').length;
-  const totalEpisodes = data.reduce((s,r) => s + (parseInt(r.episodes)||0), 0);
-  const totalMins     = data.reduce((s,r) => {
-    const rt = parseInt(r.runtime) || 0;
-    const ep = parseInt(r.episodes) || 1;
-    return s + rt * (r.type !== 'Movie' ? ep : 1);
-  }, 0);
-  const totalHrs = (totalMins / 60).toFixed(0);
-  const avgRating = (data.filter(r=>r.vrRating).reduce((s,r)=>s+parseFloat(r.vrRating),0) /
-                     data.filter(r=>r.vrRating).length).toFixed(1);
+  const totalEpisodes = data.reduce((s,r)=>s+(parseInt(r.episodes)||0),0);
+  const totalMins     = data.reduce((s,r)=>{
+    const rt=parseInt(r.runtime)||0, ep=parseInt(r.episodes)||1;
+    return s + rt*(r.type!=='Movie'?ep:1);
+  },0);
+  const withRating = data.filter(r=>r.vrRating);
+  const avgRating  = withRating.length ? (withRating.reduce((s,r)=>s+parseFloat(r.vrRating),0)/withRating.length).toFixed(1) : '—';
 
-  // --- Title Type counts ---
-  const typeCounts = {};
-  data.forEach(r => { if (r.type) typeCounts[r.type] = (typeCounts[r.type]||0) + 1; });
+  const typeCounts={}, genreCounts={}, streamCounts={}, bingeMins={}, yearTypes={}, ratingBuckets={}, langCounts={}, langByType={};
+  for(let i=1;i<=10;i++) ratingBuckets[i]={};
 
-  // --- Genre (top 15, primary genre per title) ---
-  const genreCounts = {};
   data.forEach(r => {
-    r.genres.split(',').map(g=>g.trim()).filter(Boolean).forEach(g => {
-      genreCounts[g] = (genreCounts[g]||0) + 1;
-    });
+    if(r.type){ typeCounts[r.type]=(typeCounts[r.type]||0)+1; bingeMins[r.type]=(bingeMins[r.type]||0)+(parseInt(r.runtime)||0)*(r.type!=='Movie'?(parseInt(r.episodes)||1):1); }
+    r.genres.split(',').map(g=>g.trim()).filter(Boolean).forEach(g=>{ genreCounts[g]=(genreCounts[g]||0)+1; });
+    [r.streaming1,r.streaming2,r.streaming3].filter(Boolean).forEach(s=>{ streamCounts[s]=(streamCounts[s]||0)+1; });
+    if(r.year){ if(!yearTypes[r.year]) yearTypes[r.year]={}; yearTypes[r.year][r.type]=(yearTypes[r.year][r.type]||0)+1; }
+    const vr=Math.round(parseFloat(r.vrRating)); if(vr>=1&&vr<=10){ if(!ratingBuckets[vr]) ratingBuckets[vr]={}; ratingBuckets[vr][r.type]=(ratingBuckets[vr][r.type]||0)+1; }
+    r.languages.split(',').map(l=>l.trim()).filter(Boolean).forEach(l=>{ langCounts[l]=(langCounts[l]||0)+1; if(!langByType[l]) langByType[l]={}; langByType[l][r.type]=(langByType[l][r.type]||0)+1; });
   });
 
-  // --- Genre by type (stacked) top 12 ---
-  const genreByType = {}; // { genre: { type: count } }
-  data.forEach(r => {
-    r.genres.split(',').map(g=>g.trim()).filter(Boolean).forEach(g => {
-      if (!genreByType[g]) genreByType[g] = {};
-      genreByType[g][r.type] = (genreByType[g][r.type]||0) + 1;
-    });
-  });
+  const seriesEp = data.filter(r=>r.type!=='Movie'&&r.episodes).map(r=>({title:r.title,ep:parseInt(r.episodes)||0})).sort((a,b)=>b.ep-a.ep).slice(0,15);
+  const years    = Object.keys(yearTypes).sort();
+  const topLangs = topN(langCounts,12).map(([l])=>l);
 
-  // --- Streaming ---
-  const streamCounts = {};
-  data.forEach(r => {
-    [r.streaming1, r.streaming2, r.streaming3].filter(Boolean).forEach(s => {
-      streamCounts[s] = (streamCounts[s]||0) + 1;
-    });
-  });
-
-  // --- Episodes per series (top 15) ---
-  const seriesEp = data
-    .filter(r => r.type !== 'Movie' && r.episodes)
-    .map(r => ({ title: r.title, ep: parseInt(r.episodes)||0 }))
-    .sort((a,b) => b.ep - a.ep)
-    .slice(0, 15);
-
-  // --- Binge time by type (hours) ---
-  const bingeMins = {};
-  data.forEach(r => {
-    const rt = parseInt(r.runtime) || 0;
-    const ep = parseInt(r.episodes) || 1;
-    const mins = rt * (r.type !== 'Movie' ? ep : 1);
-    bingeMins[r.type] = (bingeMins[r.type]||0) + mins;
-  });
-
-  // --- Year by type ---
-  const yearTypes = {}; // { year: { type: count } }
-  data.forEach(r => {
-    if (!r.year) return;
-    if (!yearTypes[r.year]) yearTypes[r.year] = {};
-    yearTypes[r.year][r.type] = (yearTypes[r.year][r.type]||0) + 1;
-  });
-  const years = Object.keys(yearTypes).sort();
-
-  // --- VR Rating by type ---
-  const ratingBuckets = {};
-  for (let i=1; i<=10; i++) ratingBuckets[i] = {};
-  data.forEach(r => {
-    const vr = Math.round(parseFloat(r.vrRating));
-    if (vr >= 1 && vr <= 10) {
-      if (!ratingBuckets[vr]) ratingBuckets[vr] = {};
-      ratingBuckets[vr][r.type] = (ratingBuckets[vr][r.type]||0) + 1;
-    }
-  });
-
-  // --- Language by type (top 12) ---
-  const langCounts = {};
-  const langByType  = {}; // { lang: { type: count } }
-  data.forEach(r => {
-    r.languages.split(',').map(l=>l.trim()).filter(Boolean).forEach(l => {
-      langCounts[l] = (langCounts[l]||0) + 1;
-      if (!langByType[l]) langByType[l] = {};
-      langByType[l][r.type] = (langByType[l][r.type]||0) + 1;
-    });
-  });
-  const topLangs = topN(langCounts, 12).map(([l]) => l);
-
-  return {
-    kpis: { totalTitles, totalMovies, totalSeries, totalEpisodes, totalHrs, avgRating },
-    types, typeCounts, genreCounts, genreByType,
-    streamCounts, seriesEp, bingeMins,
-    years, yearTypes, ratingBuckets, topLangs, langByType
-  };
+  return { kpis:{totalTitles,totalMovies,totalSeries,totalEpisodes,totalHrs:Math.round(totalMins/60),avgRating},
+    types, typeCounts, genreCounts, streamCounts, bingeMins, seriesEp, years, yearTypes, ratingBuckets, topLangs, langByType };
 }
 
-// ===== CHART HELPERS =====
-function chartColors(n) {
-  const base = ['#e8b84b','#e85b4b','#4be8b8','#4b8be8','#b84be8','#e84bb8','#b8e84b','#4be84b','#e8984b','#4bdde8','#e84b6f','#8be84b'];
-  const out = [];
-  for (let i=0; i<n; i++) out.push(base[i % base.length]);
-  return out;
-}
-
-function typeColorMap(types) {
-  const colors = chartColors(types.length);
-  const map = {};
-  types.forEach((t,i) => map[t] = colors[i]);
-  return map;
-}
-
-function chartDefaults() {
-  const dark = isDark;
-  return {
-    textColor:  dark ? '#e8e8f0' : '#111118',
-    mutedColor: dark ? '#888'    : '#666',
-    gridColor:  dark ? '#2a2a3a' : '#d0d0de',
-    bgColor:    dark ? '#13131a' : '#ffffff',
-  };
-}
-
-// ===== RENDER STATS =====
 function renderStats() {
-  const S = computeStats();
-  const d = chartDefaults();
-  const tcMap = typeColorMap(S.types);
+  const S=computeStats(), d=chartDefaults(), tc=typeColorMap(S.types);
+  Chart.defaults.color=d.textColor; Chart.defaults.font.family="'DM Sans', sans-serif"; Chart.defaults.font.size=11;
 
-  Chart.defaults.color = d.textColor;
-  Chart.defaults.font.family = "'DM Sans', sans-serif";
-  Chart.defaults.font.size   = 11;
-
-  // ---- KPIs ----
-  const kpiRow = document.getElementById('kpiRow');
-  kpiRow.innerHTML = `
+  document.getElementById('kpiRow').innerHTML = `
     <div class="kpi-card"><div class="kpi-value">${S.kpis.totalTitles.toLocaleString()}</div><div class="kpi-label">Total Titles</div></div>
     <div class="kpi-card"><div class="kpi-value blue">${S.kpis.totalMovies.toLocaleString()}</div><div class="kpi-label">Movies</div></div>
-    <div class="kpi-card"><div class="kpi-value green">${S.kpis.totalSeries.toLocaleString()}</div><div class="kpi-label">Series / Shows</div></div>
-    <div class="kpi-card"><div class="kpi-value purple">${parseInt(S.kpis.totalEpisodes).toLocaleString()}</div><div class="kpi-label">Total Episodes</div></div>
-    <div class="kpi-card"><div class="kpi-value red">${parseInt(S.kpis.totalHrs).toLocaleString()}</div><div class="kpi-label">Hours Binged</div></div>
-    <div class="kpi-card"><div class="kpi-value">${S.kpis.avgRating}</div><div class="kpi-label">Avg VR Rating</div></div>
-  `;
+    <div class="kpi-card"><div class="kpi-value green">${S.kpis.totalSeries.toLocaleString()}</div><div class="kpi-label">Series</div></div>
+    <div class="kpi-card"><div class="kpi-value purple">${S.kpis.totalEpisodes.toLocaleString()}</div><div class="kpi-label">Episodes</div></div>
+    <div class="kpi-card"><div class="kpi-value red">${S.kpis.totalHrs.toLocaleString()}</div><div class="kpi-label">Hours Binged</div></div>
+    <div class="kpi-card"><div class="kpi-value">${S.kpis.avgRating}</div><div class="kpi-label">Avg VR Rating</div></div>`;
 
-  // ---- 1. Title Type (donut) ----
-  destroyChart('chartType');
-  chartInstances['chartType'] = new Chart(document.getElementById('chartType'), {
-    type: 'doughnut',
-    data: {
-      labels: Object.keys(S.typeCounts),
-      datasets: [{ data: Object.values(S.typeCounts), backgroundColor: chartColors(Object.keys(S.typeCounts).length), borderWidth: 2, borderColor: d.bgColor }]
-    },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { position: 'right', labels: { color: d.textColor, boxWidth: 12, padding: 10 } } }
-    }
-  });
+  const mkBar = (id, labels, data, opts={}) => {
+    destroyChart(id);
+    chartInstances[id] = new Chart(document.getElementById(id), {
+      type:'bar', data:{labels, datasets:[{data, backgroundColor:chartColors(labels.length), borderRadius:5, borderWidth:0}]},
+      options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},
+        scales:{ x:{grid:{color:d.gridColor},ticks:{color:d.mutedColor,...(opts.xTick||{})}},
+                 y:{grid:{color:d.gridColor},ticks:{color:d.mutedColor,...(opts.yTick||{})}} }, ...opts.extra}
+    });
+  };
+  const mkHBar = (id, labels, data, color='#e8b84b', opts={}) => {
+    destroyChart(id);
+    chartInstances[id] = new Chart(document.getElementById(id), {
+      type:'bar', data:{labels, datasets:[{data, backgroundColor:color, borderRadius:5, borderWidth:0}]},
+      options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},
+        scales:{ x:{grid:{color:d.gridColor},ticks:{color:d.mutedColor,...(opts.xTick||{})}},
+                 y:{grid:{display:false},ticks:{color:d.textColor,font:{size:10},...(opts.yTick||{})}} }}
+    });
+  };
 
-  // ---- 2. Binge Time by Type (horizontal bar) ----
-  destroyChart('chartBinge');
-  const bingeLabels = Object.keys(S.bingeMins);
-  const bingeHrs    = bingeLabels.map(k => +(S.bingeMins[k]/60).toFixed(1));
-  chartInstances['chartBinge'] = new Chart(document.getElementById('chartBinge'), {
-    type: 'bar',
-    data: {
-      labels: bingeLabels,
-      datasets: [{ data: bingeHrs, backgroundColor: chartColors(bingeLabels.length), borderRadius: 6, borderWidth: 0 }]
-    },
-    options: {
-      indexAxis: 'y',
-      responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { display: false } },
-      scales: {
-        x: { grid: { color: d.gridColor }, ticks: { color: d.mutedColor, callback: v => v+'h' } },
-        y: { grid: { display: false }, ticks: { color: d.textColor } }
-      }
-    }
-  });
+  // Donut helper
+  const mkDonut = (id, labels, data, bgs, borders) => {
+    destroyChart(id);
+    chartInstances[id] = new Chart(document.getElementById(id), {
+      type:'doughnut', data:{labels, datasets:[{data, backgroundColor:bgs||chartColors(labels.length), borderColor:borders||undefined, borderWidth:2}]},
+      options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'right',labels:{color:d.textColor,boxWidth:12,padding:8}}}}
+    });
+  };
 
-  // ---- 3. Top Genres (horizontal bar) ----
-  destroyChart('chartGenre');
-  const topGenres = topN(S.genreCounts, 15);
-  chartInstances['chartGenre'] = new Chart(document.getElementById('chartGenre'), {
-    type: 'bar',
-    data: {
-      labels: topGenres.map(([g]) => g),
-      datasets: [{ data: topGenres.map(([,c]) => c), backgroundColor: chartColors(topGenres.length), borderRadius: 6, borderWidth: 0 }]
-    },
-    options: {
-      indexAxis: 'y',
-      responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { display: false } },
-      scales: {
-        x: { grid: { color: d.gridColor }, ticks: { color: d.mutedColor } },
-        y: { grid: { display: false }, ticks: { color: d.textColor } }
-      }
-    }
-  });
+  mkDonut('chartType', Object.keys(S.typeCounts), Object.values(S.typeCounts));
 
-  // ---- 4. Streaming Platforms (donut) ----
-  destroyChart('chartStream');
-  const topStreams = topN(S.streamCounts, 10);
-  chartInstances['chartStream'] = new Chart(document.getElementById('chartStream'), {
-    type: 'doughnut',
-    data: {
-      labels: topStreams.map(([s]) => s),
-      datasets: [{
-        data: topStreams.map(([,c]) => c),
-        backgroundColor: topStreams.map(([s]) => platformColor(s) + 'cc'),
-        borderColor:     topStreams.map(([s]) => platformColor(s)),
-        borderWidth: 2
-      }]
-    },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { position: 'right', labels: { color: d.textColor, boxWidth: 12, padding: 8 } } }
-    }
-  });
+  const bKeys=Object.keys(S.bingeMins), bHrs=bKeys.map(k=>+(S.bingeMins[k]/60).toFixed(1));
+  mkHBar('chartBinge', bKeys, bHrs, chartColors(bKeys.length), {xTick:{callback:v=>v+'h'}});
 
-  // ---- 5. Top Series by Episodes (bar) ----
-  destroyChart('chartEpisodes');
-  chartInstances['chartEpisodes'] = new Chart(document.getElementById('chartEpisodes'), {
-    type: 'bar',
-    data: {
-      labels: S.seriesEp.map(s => s.title.length > 20 ? s.title.slice(0,18)+'…' : s.title),
-      datasets: [{ data: S.seriesEp.map(s=>s.ep), backgroundColor: '#4be8b8cc', borderRadius: 6, borderWidth: 0 }]
-    },
-    options: {
-      indexAxis: 'y',
-      responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { display: false } },
-      scales: {
-        x: { grid: { color: d.gridColor }, ticks: { color: d.mutedColor, stepSize: 1 } },
-        y: { grid: { display: false }, ticks: { color: d.textColor, font: { size: 10 } } }
-      }
-    }
-  });
+  const tg=topN(S.genreCounts,15); mkHBar('chartGenre', tg.map(([g])=>g), tg.map(([,c])=>c), chartColors(tg.length));
 
-  // ---- 6. Release Year (stacked bar by type) ----
-  destroyChart('chartYear');
-  const yearDatasets = S.types.map(t => ({
-    label: t,
-    data: S.years.map(y => (S.yearTypes[y] && S.yearTypes[y][t]) || 0),
-    backgroundColor: tcMap[t] + 'cc',
-    borderColor: tcMap[t],
-    borderWidth: 1,
-    borderRadius: 3,
-  }));
-  chartInstances['chartYear'] = new Chart(document.getElementById('chartYear'), {
-    type: 'bar',
-    data: { labels: S.years, datasets: yearDatasets },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { labels: { color: d.textColor, boxWidth: 12, padding: 10 } } },
-      scales: {
-        x: { stacked: true, grid: { color: d.gridColor }, ticks: { color: d.mutedColor, maxRotation: 45, maxTicksLimit: 20 } },
-        y: { stacked: true, grid: { color: d.gridColor }, ticks: { color: d.mutedColor } }
-      }
-    }
-  });
+  const ts=topN(S.streamCounts,10);
+  mkDonut('chartStream', ts.map(([s])=>s), ts.map(([,c])=>c), ts.map(([s])=>platformColor(s)+'cc'), ts.map(([s])=>platformColor(s)));
 
-  // ---- 7. VR Rating distribution (grouped by type) ----
+  mkHBar('chartEpisodes', S.seriesEp.map(s=>s.title.length>22?s.title.slice(0,20)+'…':s.title), S.seriesEp.map(s=>s.ep), '#4be8b8cc');
+
+  // Stacked helpers
+  const mkStacked = (id, labels, types, dataFn, opts={}) => {
+    destroyChart(id);
+    chartInstances[id] = new Chart(document.getElementById(id), {
+      type:'bar',
+      data:{labels, datasets: types.map((t,i)=>({label:t, data:dataFn(t), backgroundColor:tc[t]+'cc', borderColor:tc[t], borderWidth:1, borderRadius:3}))},
+      options:{responsive:true,maintainAspectRatio:false,
+        plugins:{legend:{labels:{color:d.textColor,boxWidth:12,padding:10}}},
+        scales:{x:{stacked:true,grid:{color:d.gridColor},ticks:{color:d.mutedColor,...(opts.xTick||{})}},
+                y:{stacked:true,grid:{color:d.gridColor},ticks:{color:d.mutedColor}}}, ...opts.extra}
+    });
+  };
+
+  mkStacked('chartYear', S.years, S.types, t=>S.years.map(y=>(S.yearTypes[y]&&S.yearTypes[y][t])||0), {xTick:{maxRotation:45,maxTicksLimit:20}});
+
+  // Rating (grouped not stacked)
   destroyChart('chartRating');
-  const ratingLabels = ['1','2','3','4','5','6','7','8','9','10'];
-  const ratingDatasets = S.types.map(t => ({
-    label: t,
-    data: ratingLabels.map(r => (S.ratingBuckets[parseInt(r)] && S.ratingBuckets[parseInt(r)][t]) || 0),
-    backgroundColor: tcMap[t] + 'bb',
-    borderColor: tcMap[t],
-    borderWidth: 1,
-    borderRadius: 4,
-  }));
   chartInstances['chartRating'] = new Chart(document.getElementById('chartRating'), {
-    type: 'bar',
-    data: { labels: ratingLabels, datasets: ratingDatasets },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { labels: { color: d.textColor, boxWidth: 12, padding: 10 } } },
-      scales: {
-        x: { grid: { color: d.gridColor }, ticks: { color: d.textColor } },
-        y: { grid: { color: d.gridColor }, ticks: { color: d.mutedColor } }
-      }
-    }
+    type:'bar',
+    data:{labels:['1','2','3','4','5','6','7','8','9','10'],
+      datasets:S.types.map(t=>({label:t, data:[1,2,3,4,5,6,7,8,9,10].map(r=>(S.ratingBuckets[r]&&S.ratingBuckets[r][t])||0), backgroundColor:tc[t]+'bb', borderColor:tc[t], borderWidth:1, borderRadius:4}))},
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:d.textColor,boxWidth:12,padding:10}}},
+      scales:{x:{grid:{color:d.gridColor},ticks:{color:d.textColor}}, y:{grid:{color:d.gridColor},ticks:{color:d.mutedColor}}}}
   });
 
-  // ---- 8. Top Languages stacked by type ----
+  // Lang stacked horizontal
   destroyChart('chartLang');
-  const langDatasets = S.types.map(t => ({
-    label: t,
-    data: S.topLangs.map(l => (S.langByType[l] && S.langByType[l][t]) || 0),
-    backgroundColor: tcMap[t] + 'cc',
-    borderColor: tcMap[t],
-    borderWidth: 1,
-    borderRadius: 3,
-  }));
   chartInstances['chartLang'] = new Chart(document.getElementById('chartLang'), {
-    type: 'bar',
-    data: { labels: S.topLangs, datasets: langDatasets },
-    options: {
-      indexAxis: 'y',
-      responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { labels: { color: d.textColor, boxWidth: 12, padding: 10 } } },
-      scales: {
-        x: { stacked: true, grid: { color: d.gridColor }, ticks: { color: d.mutedColor } },
-        y: { stacked: true, grid: { display: false }, ticks: { color: d.textColor } }
-      }
-    }
+    type:'bar',
+    data:{labels:S.topLangs,
+      datasets:S.types.map(t=>({label:t, data:S.topLangs.map(l=>(S.langByType[l]&&S.langByType[l][t])||0), backgroundColor:tc[t]+'cc', borderColor:tc[t], borderWidth:1, borderRadius:3}))},
+    options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{labels:{color:d.textColor,boxWidth:12,padding:10}}},
+      scales:{x:{stacked:true,grid:{color:d.gridColor},ticks:{color:d.mutedColor}}, y:{stacked:true,grid:{display:false},ticks:{color:d.textColor}}}}
   });
 }
 
-// ===== START =====
-initFilters();
-applyFilters();
+// ================================================================
+//  TIMELINE
+// ================================================================
+function renderTimeline() {
+  const container = document.getElementById('timelineContent');
+
+  // Detect bulk-import date: day with unusually many entries (>=10)
+  const dateCounts = {};
+  MOVIES_DATA.forEach(r => { if (r.dateRated) dateCounts[r.dateRated] = (dateCounts[r.dateRated]||0)+1; });
+  const bulkDate = Object.entries(dateCounts).sort((a,b)=>b[1]-a[1])[0];
+  const bulkThreshold = 10;
+  const bulkDateStr = (bulkDate && bulkDate[1] >= bulkThreshold) ? bulkDate[0] : null;
+
+  // Split real vs pre-tracking
+  const pre   = MOVIES_DATA.filter(r => r.dateRated === bulkDateStr || !r.dateRated);
+  const real  = MOVIES_DATA.filter(r => r.dateRated && r.dateRated !== bulkDateStr)
+    .sort((a,b) => new Date(b.dateRated) - new Date(a.dateRated));
+
+  // Group real by year → month
+  const grouped = {};
+  real.forEach(r => {
+    const d = new Date(r.dateRated);
+    if (isNaN(d)) return;
+    const y = d.getFullYear(), m = d.getMonth();
+    if (!grouped[y]) grouped[y] = {};
+    if (!grouped[y][m]) grouped[y][m] = [];
+    grouped[y][m].push(r);
+  });
+
+  const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  let html = '';
+
+  // Pre-2020 block
+  if (pre.length) {
+    html += `<div class="timeline-pre2020">
+      <div class="timeline-pre2020-icon">📼</div>
+      <div class="timeline-pre2020-text">
+        <h3>Pre-tracking Collection — ${pre.length} titles</h3>
+        <p>Watched before your IMDb tracking started. Not shown on timeline to keep the view clean.</p>
+      </div>
+    </div>`;
+  }
+
+  // Yearly groups (newest first)
+  Object.keys(grouped).sort((a,b)=>b-a).forEach(year => {
+    html += `<div class="timeline-year-group">
+      <div class="timeline-year-label">${year} · ${Object.values(grouped[year]).flat().length} titles</div>
+      <div class="timeline-months">`;
+    Object.keys(grouped[year]).sort((a,b)=>b-a).forEach(m => {
+      const items = grouped[year][m];
+      html += `<div class="timeline-month">
+        <div class="timeline-month-label">${MONTHS[m]}</div>
+        <div class="timeline-month-items">
+          ${items.map(r => `
+            <div class="timeline-chip" onclick="openTimelineItem('${r.const||''}','${escHtml(r.title)}')">
+              <span>${escHtml(r.title.length>30?r.title.slice(0,28)+'…':r.title)}</span>
+              ${r.vrRating ? `<span class="timeline-chip-rating">★${r.vrRating}</span>` : ''}
+              ${r.type !== 'Movie' ? `<span class="timeline-chip-type">${r.type.replace('TV ','')}</span>` : ''}
+            </div>`).join('')}
+        </div>
+      </div>`;
+    });
+    html += `</div></div>`;
+  });
+
+  container.innerHTML = html;
+}
+
+function openTimelineItem(constId, title) {
+  const item = constId ? MOVIES_DATA.find(r => r.const === constId) : MOVIES_DATA.find(r => r.title === title);
+  if (item) { openPanel(''); document.getElementById('timelineOverlay').style.display = 'none'; openModal(item); }
+}
+
+// ================================================================
+//  BINGE CALENDAR
+// ================================================================
+function renderCalendar() {
+  const container = document.getElementById('calendarContent');
+
+  const dateCounts = {};
+  MOVIES_DATA.forEach(r => { if (r.dateRated) dateCounts[r.dateRated] = (dateCounts[r.dateRated]||0)+1; });
+
+  // Detect bulk date
+  const sorted = Object.entries(dateCounts).sort((a,b)=>b[1]-a[1]);
+  const bulkDate = sorted.length && sorted[0][1] >= 10 ? sorted[0][0] : null;
+
+  // Build real date map (exclude bulk)
+  const realDates = {};
+  Object.entries(dateCounts).forEach(([d,c]) => { if (d !== bulkDate) realDates[d] = c; });
+
+  if (!Object.keys(realDates).length) {
+    container.innerHTML = '<div style="color:var(--muted);padding:24px;">No date data available.</div>';
+    return;
+  }
+
+  const maxCount = Math.max(...Object.values(realDates));
+  const allYears = [...new Set(Object.keys(realDates).map(d => new Date(d).getFullYear()))].filter(y=>!isNaN(y)).sort((a,b)=>b-a);
+
+  const preCount = bulkDate ? (dateCounts[bulkDate]||0) : 0;
+  let html = '';
+  if (preCount) {
+    html += `<div class="cal-note">📼 <span>${preCount} titles from pre-tracking era (${bulkDate}) are excluded to keep the calendar accurate.</span></div>`;
+  }
+
+  const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+  allYears.forEach(year => {
+    html += `<div class="cal-year-section"><div class="cal-year-label">${year}</div>`;
+
+    // Build 52-week grid for the year
+    const jan1   = new Date(year, 0, 1);
+    const dec31  = new Date(year, 11, 31);
+    const startDow = jan1.getDay(); // 0=Sun
+    const totalDays = Math.round((dec31 - jan1) / 86400000) + 1;
+    const totalCells = Math.ceil((startDow + totalDays) / 7) * 7;
+
+    // Month labels: figure out which week column each month starts in
+    const monthCols = {};
+    for (let m=0; m<12; m++) {
+      const d = new Date(year, m, 1);
+      const dayOfYear = Math.round((d - jan1) / 86400000);
+      const col = Math.floor((startDow + dayOfYear) / 7);
+      if (!monthCols[col]) monthCols[col] = MONTHS[m];
+    }
+    const numCols = totalCells / 7;
+
+    // Month label row
+    let monthRow = '<div class="cal-month-labels" style="grid-template-columns:repeat('+numCols+', 14px)">';
+    for (let c=0; c<numCols; c++) {
+      monthRow += `<div class="cal-month-lbl">${monthCols[c]||''}</div>`;
+    }
+    monthRow += '</div>';
+
+    // Grid cells
+    let gridHtml = `<div class="cal-grid" style="grid-template-columns:repeat(${numCols}, 14px);">`;
+    for (let c=0; c<numCols; c++) {
+      for (let r=0; r<7; r++) {
+        const dayIndex = c*7 + r - startDow;
+        if (dayIndex < 0 || dayIndex >= totalDays) {
+          gridHtml += `<div class="cal-cell"></div>`;
+          continue;
+        }
+        const d = new Date(year, 0, 1 + dayIndex);
+        const dateStr = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+        const count   = realDates[dateStr] || 0;
+        const level   = count === 0 ? 0 : count === 1 ? 1 : count <= 2 ? 2 : count <= 3 ? 3 : count <= 5 ? 4 : 5;
+        const levelCls = level > 0 ? `level-${level} has-data` : '';
+        const title   = count > 0 ? `${dateStr}: ${count} title${count>1?'s':''}` : dateStr;
+        gridHtml += `<div class="cal-cell ${levelCls}" title="${title}" data-count="${count}" data-date="${dateStr}"></div>`;
+      }
+    }
+    gridHtml += '</div>';
+
+    html += monthRow + `<div class="cal-grid-wrap">${gridHtml}</div>`;
+    html += `<div class="cal-legend">
+      <span>Less</span>
+      ${[0,1,2,3,4,5].map(l=>`<div class="cal-legend-cell ${l>0?'level-'+l:''}" style="${l===0?'background:var(--surface2)':''}"></div>`).join('')}
+      <span>More</span>
+    </div></div>`;
+  });
+
+  container.innerHTML = html;
+
+  // Tooltip on hover
+  const tooltip = document.createElement('div');
+  tooltip.className = 'cal-tooltip'; tooltip.style.display = 'none';
+  document.body.appendChild(tooltip);
+
+  container.querySelectorAll('.cal-cell.has-data').forEach(cell => {
+    cell.addEventListener('mouseenter', e => {
+      const date = cell.dataset.date, count = cell.dataset.count;
+      const titles = MOVIES_DATA.filter(r => r.dateRated === date).map(r => r.title).slice(0,5);
+      tooltip.innerHTML = `<strong>${date}</strong><br>${count} title${count>1?'s':''}<br><span style="color:var(--muted);font-size:0.72rem">${titles.join(', ')}${count>5?'…':''}</span>`;
+      tooltip.style.display = 'block';
+    });
+    cell.addEventListener('mousemove', e => {
+      tooltip.style.left = (e.clientX + 12) + 'px';
+      tooltip.style.top  = (e.clientY - 10) + 'px';
+    });
+    cell.addEventListener('mouseleave', () => { tooltip.style.display = 'none'; });
+  });
+}
+
+// ================================================================
+//  START (called by google-sheets-loader after data loads)
+// ================================================================
+function initFilters() {
+  const data   = MOVIES_DATA;
+  const genres = [...new Set(data.flatMap(r => r.genres.split(',').map(g => g.trim())))].filter(Boolean).sort();
+  const langs  = [...new Set(data.flatMap(r => r.languages.split(',').map(l => l.trim())))].filter(Boolean).sort();
+  const years  = [...new Set(data.map(r => r.year).filter(Boolean))].sort((a,b)=>b-a);
+  const plats  = [...new Set(data.flatMap(r => [r.streaming1,r.streaming2,r.streaming3]).filter(Boolean))].sort();
+
+  genres.forEach(g => { if (![...genreFilter.options].some(o=>o.value===g)) genreFilter.add(new Option(g,g)); });
+  langs.forEach(l  => { if (![...langFilter.options].some(o=>o.value===l))  langFilter.add(new Option(l,l)); });
+  years.forEach(y  => { if (![...yearFilter.options].some(o=>o.value===y))  yearFilter.add(new Option(y,y)); });
+  plats.forEach(p  => { if (![...streamingFilter.options].some(o=>o.value===p)) streamingFilter.add(new Option(p,p)); });
+
+  const movies = data.filter(r=>r.type==='Movie').length;
+  const series = data.filter(r=>r.type!=='Movie').length;
+  headerStats.textContent = `${data.length.toLocaleString()} titles · ${movies} Movies · ${series} Series`;
+
+  // Deep link
+  const params  = new URLSearchParams(window.location.search);
+  const deepId  = params.get('id');
+  if (deepId) { const item = MOVIES_DATA.find(r=>r.const===deepId); if (item) setTimeout(()=>openModal(item),400); }
+}
