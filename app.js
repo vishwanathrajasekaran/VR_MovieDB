@@ -359,7 +359,7 @@ function openEditModal(item) {
       ${ef('Original Title','originalTitle',item.originalTitle,'text')}
       ${ef('Type','type',item.type,'select',['Movie','TV Series','TV Mini Series','TV Movie','Video','Short'])}
       ${ef('Year','year',item.year,'text')}
-      ${ef('Release Date','releaseDate',item.releaseDate,'text')}
+      ${ef('Release Date','releaseDate',item.releaseDate,'date')}
       ${ef('Certification','certification',item.certification,'text')}
       ${ef('Languages','languages',item.languages,'text')}
       ${ef('Genres','genres',item.genres,'text')}
@@ -387,7 +387,7 @@ function openEditModal(item) {
       ${ef('Plot','plot',item.plot,'textarea')}
       ${ef('Poster URL','poster',item.poster,'text')}
       ${ef('IMDb URL','url',item.url,'text')}
-      ${ef('Date Rated','dateRated',item.dateRated,'text')}
+      ${ef('Date Rated','dateRated',item.dateRated,'date')}
       <div class="edit-actions">
         <button class="btn btn-save" onclick="saveEdit('${item.const}','edit')">💾 Save to Sheet</button>
         <button class="btn btn-cancel" onclick="closeEditModal()">Cancel</button>
@@ -407,6 +407,11 @@ function ef(label, field, value, type, options=[]) {
     const opts = options.map(o=>`<option value="${o}" ${o===value?'selected':''}>${o}</option>`).join('');
     return `<div class="edit-group ${fullClass}"><label class="edit-label">${label}</label><select class="edit-select" data-field="${field}">${opts}</select></div>`;
   }
+  if (type==='date') {
+    // Convert existing value to YYYY-MM-DD for the native date picker
+    const isoVal = toInputDate(value||'');
+    return `<div class="edit-group ${fullClass}"><label class="edit-label">${label}</label><input class="edit-input edit-date" data-field="${field}" data-datepicker="true" type="date" value="${isoVal}"/></div>`;
+  }
   return `<div class="edit-group ${fullClass}"><label class="edit-label">${label}</label><input class="edit-input" data-field="${field}" type="text" value="${val}"/></div>`;
 }
 
@@ -418,7 +423,10 @@ async function saveEdit(constId, action='edit') {
   const updates = {};
   form.querySelectorAll('[data-field]').forEach(el => {
     const colIdx = COL_MAP[el.dataset.field];
-    if (colIdx !== undefined) updates[colIdx] = el.value;
+    if (colIdx !== undefined) {
+      // Date picker returns YYYY-MM-DD — convert to M/D/YYYY for sheet
+      updates[colIdx] = el.dataset.datepicker ? toSheetDate(el.value) : el.value;
+    }
   });
 
   // Sync streaming logo URLs from PLATFORMS_DATA when platform name changes
@@ -475,7 +483,7 @@ function openAddModal() {
       ${ef('IMDb Const (tt…) *','const','','text')}
       ${ef('Type *','type','Movie','select',['Movie','TV Series','TV Mini Series','TV Movie','Video','Short'])}
       ${ef('Year','year','','text')}
-      ${ef('Release Date','releaseDate','','text')}
+      ${ef('Release Date','releaseDate','','date')}
       ${ef('IMDb Rating','imdbRating','','text')}
       ${ef('VR Rating *','vrRating','','text')}
       ${ef('Runtime (mins)','runtime','','text')}
@@ -501,7 +509,7 @@ function openAddModal() {
       ${ef('Plot','plot','','textarea')}
       ${ef('Poster URL','poster','','text')}
       ${ef('IMDb URL','url','','text')}
-      ${ef('Date Rated','dateRated',new Date().toLocaleDateString('en-US'),'text')}
+      ${ef('Date Rated','dateRated', new Date().toISOString().slice(0,10), 'date')}
       <div class="edit-actions">
         <button class="btn btn-save" id="addSaveBtn">➕ Add to Sheet</button>
         <button class="btn btn-cancel" onclick="closeEditModal()">Cancel</button>
@@ -531,7 +539,9 @@ async function saveAdd() {
   const rowData = {};
   form.querySelectorAll('[data-field]').forEach(el => {
     const colIdx = COL_MAP[el.dataset.field];
-    if (colIdx !== undefined) rowData[colIdx] = el.value;
+    if (colIdx !== undefined) {
+      rowData[colIdx] = el.dataset.datepicker ? toSheetDate(el.value) : el.value;
+    }
   });
 
   // Auto-fill streaming logo URLs
@@ -611,6 +621,7 @@ document.getElementById('statsBtn').addEventListener('click',    ()=>{ openPanel
 document.getElementById('timelineBtn').addEventListener('click', ()=>{ openPanel('timelineOverlay'); renderTimeline(); });
 document.getElementById('calendarBtn').addEventListener('click', ()=>{ openPanel('calendarOverlay'); renderCalendar(); });
 document.getElementById('addBtn').addEventListener('click', () => requirePin(openAddModal));
+document.getElementById('refreshBtn').addEventListener('click', hardRefresh);
 
 ['statsClose','timelineClose','calendarClose'].forEach(id => {
   document.getElementById(id).addEventListener('click', ()=>document.getElementById(id.replace('Close','Overlay')).style.display='none');
@@ -631,6 +642,30 @@ function showToast(msg) {
   setTimeout(()=>t.classList.remove('show'), 3000);
 }
 
+// ── Hard Refresh ─────────────────────────────────────────────────
+async function hardRefresh() {
+  const btn = document.getElementById('refreshBtn');
+  btn.textContent = '⏳';
+  btn.disabled = true;
+
+  // 1. Clear all SW caches
+  if ('caches' in window) {
+    const keys = await caches.keys();
+    await Promise.all(keys.map(k => caches.delete(k)));
+  }
+
+  // 2. Unregister service worker so it re-installs fresh
+  if ('serviceWorker' in navigator) {
+    const regs = await navigator.serviceWorker.getRegistrations();
+    await Promise.all(regs.map(r => r.unregister()));
+  }
+
+  showToast('🔄 Cache cleared — reloading…');
+
+  // 3. Hard reload bypassing browser cache
+  setTimeout(() => window.location.reload(true), 800);
+}
+
 // ── Utils ────────────────────────────────────────────────────────
 function escHtml(str) {
   if (!str) return '';
@@ -646,6 +681,18 @@ function normDate(raw) {
   const d = new Date(raw);
   if (!isNaN(d)) return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
   return '';
+}
+
+// Convert any date to YYYY-MM-DD for <input type="date"> value
+function toInputDate(raw) {
+  return normDate(raw); // normDate already returns YYYY-MM-DD
+}
+
+// Convert YYYY-MM-DD (from date picker) back to M/D/YYYY (sheet format)
+function toSheetDate(isoDate) {
+  if (!isoDate) return '';
+  const [y, m, d] = isoDate.split('-');
+  return `${parseInt(m)}/${parseInt(d)}/${y}`;
 }
 
 // ================================================================
