@@ -392,12 +392,13 @@ async function saveEdit(constId) {
   }
 
   try {
-    // Google Apps Script requires no-cors from browser — we can't read the response body.
-    // We send the request and treat network success as save success.
+    // Uses text/plain + no-cors to avoid CORS preflight with Apps Script.
+    // SW is configured to never intercept POST requests.
     await fetch(APPS_SCRIPT_URL, {
       method:  'POST',
-      mode:    'no-cors',   // Required for Apps Script — prevents CORS error
-      headers: { 'Content-Type': 'text/plain' }, // text/plain avoids preflight
+      mode:    'no-cors',
+      cache:   'no-store',
+      headers: { 'Content-Type': 'text/plain' },
       body:    JSON.stringify({ const: constId, updates }),
     });
 
