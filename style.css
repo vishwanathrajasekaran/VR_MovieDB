@@ -345,13 +345,18 @@ header {
 .edit-group { display: flex; flex-direction: column; gap: 4px; }
 .edit-group.full { grid-column: span 2; }
 .edit-label { font-size: 0.72rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.8px; }
-.edit-input, .edit-textarea, .edit-select {
+.edit-input, .edit-textarea, .edit-select, .edit-date {
   background: var(--surface2); border: 1px solid var(--border);
   color: var(--text); border-radius: 8px; padding: 8px 12px;
   font-family: 'DM Sans', sans-serif; font-size: 0.85rem; outline: none;
   transition: border-color 0.2s; width: 100%;
 }
-.edit-input:focus, .edit-textarea:focus, .edit-select:focus { border-color: var(--accent); }
+.edit-date {
+  /* Override browser default date picker color scheme */
+  color-scheme: dark;
+}
+[data-theme="light"] .edit-date { color-scheme: light; }
+.edit-input:focus, .edit-textarea:focus, .edit-select:focus, .edit-date:focus { border-color: var(--accent); }
 .edit-textarea { resize: vertical; min-height: 80px; }
 .edit-actions { grid-column: span 2; display: flex; gap: 10px; margin-top: 8px; }
 .btn-save    { background: #4be8b8; color: #000; }
