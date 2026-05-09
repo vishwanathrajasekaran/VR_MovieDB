@@ -4,7 +4,7 @@
 //            Stats Dashboard, Timeline, Binge Calendar, PWA Toast
 // ================================================================
 
-const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzy4ye17WRiGplwHpNikOfUBRid-Opd7SA7y0bErhojmjUU9_KDU4Ydnb5FD64qODLpJQ/exec';
+const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwoje62vCYjzEjls-k8IYEL9Xrt2--MN_3-gimrEfxHg7nkt86DXqD0fb6vosK9rZpZTA/exec';
 
 // Column index map (must match google-sheets-loader.js COL)
 const COL_MAP = {
