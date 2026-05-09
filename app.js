@@ -444,7 +444,7 @@ document.getElementById('editModalClose').addEventListener('click', closeEditMod
 document.getElementById('editModal').addEventListener('click', e => { if (e.target === document.getElementById('editModal')) closeEditModal(); });
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') {
-    closeModal(); closeEditModal();
+    closeModal(); closeEditModal(); closeCalDayModal();
     ['statsOverlay','timelineOverlay','calendarOverlay'].forEach(id => { document.getElementById(id).style.display = 'none'; });
   }
 });
@@ -833,25 +833,79 @@ function renderCalendar() {
 
   container.innerHTML = html;
 
-  // Tooltip on hover
-  const tooltip = document.createElement('div');
-  tooltip.className = 'cal-tooltip'; tooltip.style.display = 'none';
-  document.body.appendChild(tooltip);
-
-  container.querySelectorAll('.cal-cell.has-data').forEach(cell => {
-    cell.addEventListener('mouseenter', e => {
-      const date = cell.dataset.date, count = cell.dataset.count;
-      // Match using normalised date so M/D/YYYY sheet format works
-      const titles = MOVIES_DATA.filter(r => normDate(r.dateRated) === date).map(r => r.title).slice(0,5);
-      tooltip.innerHTML = `<strong>${date}</strong><br>${count} title${count>1?'s':''}<br><span style="color:var(--muted);font-size:0.72rem">${titles.join(', ')}${count>5?'…':''}</span>`;
-      tooltip.style.display = 'block';
-    });
-    cell.addEventListener('mousemove', e => {
-      tooltip.style.left = (e.clientX + 12) + 'px';
-      tooltip.style.top  = (e.clientY - 10) + 'px';
-    });
-    cell.addEventListener('mouseleave', () => { tooltip.style.display = 'none'; });
+  // Click on a day cell → open day modal showing all titles for that date
+  container.addEventListener('click', e => {
+    const cell = e.target.closest('.cal-cell.has-data');
+    if (!cell) return;
+    openCalDayModal(cell.dataset.date);
   });
+}
+
+// Opens a modal listing all titles rated on a given date
+function openCalDayModal(dateStr) {
+  const titles = MOVIES_DATA.filter(r => normDate(r.dateRated) === dateStr);
+  if (!titles.length) return;
+
+  // Format date nicely: "Wednesday, 6 May 2025"
+  const d = new Date(dateStr);
+  const dayLabel = d.toLocaleDateString('en-GB', { weekday:'long', day:'numeric', month:'long', year:'numeric' });
+
+  const items = titles.map(r => `
+    <div class="cal-day-item" data-const="${r.const || ''}">
+      ${r.poster
+        ? `<img class="cal-day-poster" src="${r.poster}" alt="" loading="lazy"
+             onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'cal-day-poster-ph',textContent:'🎬'}))">`
+        : `<div class="cal-day-poster-ph">🎬</div>`}
+      <div class="cal-day-info">
+        <div class="cal-day-title">${escHtml(r.title)}</div>
+        <div class="cal-day-meta">
+          ${r.year || ''}
+          ${r.type && r.type !== 'Movie' ? ` · ${r.type.replace('TV ','')}` : ''}
+          ${r.vrRating ? `<span class="cal-day-rating">★ ${r.vrRating}</span>` : ''}
+        </div>
+      </div>
+      <div class="cal-day-arrow">›</div>
+    </div>`).join('');
+
+  // Build overlay
+  const overlay = document.createElement('div');
+  overlay.className = 'cal-day-overlay';
+  overlay.id = 'calDayOverlay';
+  overlay.innerHTML = `
+    <div class="cal-day-box">
+      <div class="cal-day-header">
+        <div>
+          <div class="cal-day-date">${dayLabel}</div>
+          <div class="cal-day-count">${titles.length} title${titles.length > 1 ? 's' : ''} watched</div>
+        </div>
+        <button class="cal-day-close" id="calDayClose">✕</button>
+      </div>
+      <div class="cal-day-list">${items}</div>
+    </div>`;
+
+  document.body.appendChild(overlay);
+
+  // Close handlers
+  document.getElementById('calDayClose').addEventListener('click', closeCalDayModal);
+  overlay.addEventListener('click', e => { if (e.target === overlay) closeCalDayModal(); });
+
+  // Click a title → close day modal + calendar → open detail modal
+  overlay.querySelectorAll('.cal-day-item').forEach(item => {
+    item.addEventListener('click', () => {
+      const constId = item.dataset.const;
+      const movie   = constId ? MOVIES_DATA.find(r => r.const === constId) : null;
+      if (movie) {
+        closeCalDayModal();
+        document.getElementById('calendarOverlay').style.display = 'none';
+        openModal(movie);
+      }
+    });
+  });
+}
+
+function closeCalDayModal() {
+  const el = document.getElementById('calDayOverlay');
+  if (el) el.remove();
 }
 
 // ================================================================
