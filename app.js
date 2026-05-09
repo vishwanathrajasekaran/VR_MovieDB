@@ -370,47 +370,47 @@ function ef(label, field, value, type, options = []) {
 }
 
 async function saveEdit(constId) {
-  const form = document.getElementById('editForm');
+  const form   = document.getElementById('editForm');
   const saving = document.getElementById('editSaving');
   saving.classList.add('visible');
 
   // Collect all field values
   const updates = {};
   form.querySelectorAll('[data-field]').forEach(el => {
-    const field = el.dataset.field;
+    const field  = el.dataset.field;
     const colIdx = COL_MAP[field];
     if (colIdx !== undefined) updates[colIdx] = el.value;
   });
 
-  // Also update in-memory MOVIES_DATA immediately
+  // Patch in-memory data immediately so UI reflects changes
   const itemIdx = MOVIES_DATA.findIndex(r => r.const === constId);
+  if (itemIdx !== -1) {
+    Object.entries(updates).forEach(([colIdx, val]) => {
+      const field = Object.keys(COL_MAP).find(k => COL_MAP[k] === parseInt(colIdx));
+      if (field) MOVIES_DATA[itemIdx][field] = val;
+    });
+  }
 
   try {
-    const resp = await fetch(APPS_SCRIPT_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ const: constId, updates }),
+    // Google Apps Script requires no-cors from browser — we can't read the response body.
+    // We send the request and treat network success as save success.
+    await fetch(APPS_SCRIPT_URL, {
+      method:  'POST',
+      mode:    'no-cors',   // Required for Apps Script — prevents CORS error
+      headers: { 'Content-Type': 'text/plain' }, // text/plain avoids preflight
+      body:    JSON.stringify({ const: constId, updates }),
     });
-    const result = await resp.json();
 
-    if (result.success) {
-      // Patch in-memory data so UI reflects changes without reload
-      if (itemIdx !== -1) {
-        Object.entries(updates).forEach(([colIdx, val]) => {
-          const field = Object.keys(COL_MAP).find(k => COL_MAP[k] === parseInt(colIdx));
-          if (field) MOVIES_DATA[itemIdx][field] = val;
-        });
-      }
-      saving.classList.remove('visible');
-      closeEditModal();
-      showToast('✅ Saved to Google Sheets!');
-      applyFilters(); // re-render with updated data
-    } else {
-      throw new Error(result.error || 'Save failed');
-    }
-  } catch (err) {
+    // no-cors always returns opaque response (can't read body) — if we reach here, request was sent
     saving.classList.remove('visible');
-    showToast(`❌ Error: ${err.message}`);
+    closeEditModal();
+    showToast('✅ Saved to Google Sheets!');
+    applyFilters();
+
+  } catch (err) {
+    // Only real network failures land here
+    saving.classList.remove('visible');
+    showToast(`❌ Network error: ${err.message}`);
     console.error('Save error:', err);
   }
 }
@@ -644,20 +644,24 @@ function renderTimeline() {
 
   // Detect bulk-import date: day with unusually many entries (>=10)
   const dateCounts = {};
-  MOVIES_DATA.forEach(r => { if (r.dateRated) dateCounts[r.dateRated] = (dateCounts[r.dateRated]||0)+1; });
+  MOVIES_DATA.forEach(r => {
+    const nd = normDate(r.dateRated);
+    if (nd) dateCounts[nd] = (dateCounts[nd]||0)+1;
+  });
   const bulkDate = Object.entries(dateCounts).sort((a,b)=>b[1]-a[1])[0];
   const bulkThreshold = 10;
   const bulkDateStr = (bulkDate && bulkDate[1] >= bulkThreshold) ? bulkDate[0] : null;
 
-  // Split real vs pre-tracking
-  const pre   = MOVIES_DATA.filter(r => r.dateRated === bulkDateStr || !r.dateRated);
+  // Split real vs pre-tracking (compare normalised dates)
+  const pre  = MOVIES_DATA.filter(r => !normDate(r.dateRated) || normDate(r.dateRated) === bulkDateStr);
   const real  = MOVIES_DATA.filter(r => r.dateRated && r.dateRated !== bulkDateStr)
-    .sort((a,b) => new Date(b.dateRated) - new Date(a.dateRated));
+    .sort((a,b) => new Date(normDate(b.dateRated)) - new Date(normDate(a.dateRated)));
 
   // Group real by year → month
   const grouped = {};
   real.forEach(r => {
-    const d = new Date(r.dateRated);
+    const nd = normDate(r.dateRated);
+    const d = new Date(nd);
     if (isNaN(d)) return;
     const y = d.getFullYear(), m = d.getMonth();
     if (!grouped[y]) grouped[y] = {};
@@ -690,7 +694,7 @@ function renderTimeline() {
         <div class="timeline-month-label">${MONTHS[m]}</div>
         <div class="timeline-month-items">
           ${items.map(r => `
-            <div class="timeline-chip" onclick="openTimelineItem('${r.const||''}','${escHtml(r.title)}')">
+            <div class="timeline-chip" data-const="${escHtml(r.const||'')}">
               <span>${escHtml(r.title.length>30?r.title.slice(0,28)+'…':r.title)}</span>
               ${r.vrRating ? `<span class="timeline-chip-rating">★${r.vrRating}</span>` : ''}
               ${r.type !== 'Movie' ? `<span class="timeline-chip-type">${r.type.replace('TV ','')}</span>` : ''}
@@ -702,21 +706,50 @@ function renderTimeline() {
   });
 
   container.innerHTML = html;
-}
 
-function openTimelineItem(constId, title) {
-  const item = constId ? MOVIES_DATA.find(r => r.const === constId) : MOVIES_DATA.find(r => r.title === title);
-  if (item) { openPanel(''); document.getElementById('timelineOverlay').style.display = 'none'; openModal(item); }
+  // Event delegation — safer than inline onclick for titles with special chars
+  container.addEventListener('click', e => {
+    const chip = e.target.closest('.timeline-chip');
+    if (!chip) return;
+    const constId = chip.dataset.const;
+    const item = constId ? MOVIES_DATA.find(r => r.const === constId) : null;
+    if (item) {
+      document.getElementById('timelineOverlay').style.display = 'none';
+      openModal(item);
+    }
+  });
 }
 
 // ================================================================
 //  BINGE CALENDAR
 // ================================================================
+
+/**
+ * Normalise any date string the sheet might contain to YYYY-MM-DD.
+ * Handles: "2025-05-06", "5/6/2025", "06/05/2025", "May 6, 2025" etc.
+ */
+function normDate(raw) {
+  if (!raw) return '';
+  raw = String(raw).trim();
+  // Already YYYY-MM-DD
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  // Try native parse (handles most formats)
+  const d = new Date(raw);
+  if (!isNaN(d)) {
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  }
+  return '';
+}
+
 function renderCalendar() {
   const container = document.getElementById('calendarContent');
 
+  // Build date counts using normalised dates
   const dateCounts = {};
-  MOVIES_DATA.forEach(r => { if (r.dateRated) dateCounts[r.dateRated] = (dateCounts[r.dateRated]||0)+1; });
+  MOVIES_DATA.forEach(r => {
+    const nd = normDate(r.dateRated);
+    if (nd) dateCounts[nd] = (dateCounts[nd]||0)+1;
+  });
 
   // Detect bulk date
   const sorted = Object.entries(dateCounts).sort((a,b)=>b[1]-a[1]);
@@ -807,7 +840,8 @@ function renderCalendar() {
   container.querySelectorAll('.cal-cell.has-data').forEach(cell => {
     cell.addEventListener('mouseenter', e => {
       const date = cell.dataset.date, count = cell.dataset.count;
-      const titles = MOVIES_DATA.filter(r => r.dateRated === date).map(r => r.title).slice(0,5);
+      // Match using normalised date so M/D/YYYY sheet format works
+      const titles = MOVIES_DATA.filter(r => normDate(r.dateRated) === date).map(r => r.title).slice(0,5);
       tooltip.innerHTML = `<strong>${date}</strong><br>${count} title${count>1?'s':''}<br><span style="color:var(--muted);font-size:0.72rem">${titles.join(', ')}${count>5?'…':''}</span>`;
       tooltip.style.display = 'block';
     });
