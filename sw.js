@@ -1,7 +1,7 @@
 // VR MovieDB — Service Worker
 // Caches the app shell so it loads instantly and works offline
 
-const CACHE_NAME = 'vr-moviedb-v2';
+const CACHE_NAME = 'vr-moviedb-v3';
 const APP_SHELL  = [
   '/',
   '/index.html',
@@ -31,20 +31,23 @@ self.addEventListener('activate', event => {
   );
 });
 
-// Fetch strategy:
-// - App shell (HTML/CSS/JS) → Cache first, network fallback
-// - Google Sheets API       → Network first (always fresh data), cache fallback
-// - Images / fonts          → Cache first
 self.addEventListener('fetch', event => {
   const url = event.request.url;
+  const method = event.request.method;
 
-  // Google Sheets API — always try network first for fresh data
-  if (url.includes('sheets.googleapis.com') || url.includes('script.google.com')) {
+  // NEVER intercept POST requests — let them go straight to network
+  // This is critical for Apps Script saves (no-cors POST)
+  if (method === 'POST') return;
+
+  // Google Sheets READ — network first, cache as fallback for offline
+  if (url.includes('sheets.googleapis.com')) {
     event.respondWith(
       fetch(event.request)
         .then(resp => {
-          const clone = resp.clone();
-          caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
+          // Only cache valid non-opaque responses
+          if (resp && resp.status === 200 && resp.type === 'basic') {
+            caches.open(CACHE_NAME).then(c => c.put(event.request, resp.clone()));
+          }
           return resp;
         })
         .catch(() => caches.match(event.request))
@@ -52,14 +55,16 @@ self.addEventListener('fetch', event => {
     return;
   }
 
-  // Everything else — cache first
+  // Apps Script — never cache, always pass through
+  if (url.includes('script.google.com')) return;
+
+  // App shell & static assets — cache first
   event.respondWith(
     caches.match(event.request)
       .then(cached => cached || fetch(event.request)
         .then(resp => {
           if (resp && resp.status === 200 && resp.type !== 'opaque') {
-            const clone = resp.clone();
-            caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
+            caches.open(CACHE_NAME).then(c => c.put(event.request, resp.clone()));
           }
           return resp;
         })
