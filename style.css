@@ -267,9 +267,35 @@ header {
   font-size: 0.72rem; padding: 3px 9px; border-radius: 20px;
   border: 1px solid var(--border); background: var(--surface2); color: var(--text);
 }
-.badge.lang  { border-color: #3a5a7a; color: #7ab8e8; background: rgba(58,90,122,0.15); }
-.badge.genre { border-color: #3a5a3a; color: #7ae87a; background: rgba(58,90,58,0.15); }
-.badge.subgenre { border-color: #2a2a3a; color: #999; background: transparent; font-size: 0.65rem; padding: 2px 7px; }
+/* Language badge — blue, both themes */
+.badge.lang {
+  border-color: #3a7aaa;
+  color: #1a6aaa;
+  background: rgba(58,122,170,0.12);
+}
+[data-theme="dark"] .badge.lang {
+  border-color: #3a5a7a;
+  color: #7ab8e8;
+  background: rgba(58,90,122,0.18);
+}
+/* Genre badge — green, both themes */
+.badge.genre {
+  border-color: #2a7a4a;
+  color: #1a6a38;
+  background: rgba(42,122,74,0.1);
+}
+[data-theme="dark"] .badge.genre {
+  border-color: #3a5a3a;
+  color: #7ae87a;
+  background: rgba(58,90,58,0.18);
+}
+/* Sub-genre — muted, both themes */
+.badge.subgenre {
+  border-color: var(--border);
+  color: var(--muted);
+  background: transparent;
+  font-size: 0.65rem; padding: 2px 7px;
+}
 .badge.stream {
   display: inline-flex; align-items: center; gap: 6px;
   font-weight: 600; font-size: 0.72rem; padding: 4px 10px; border-radius: 20px;
@@ -280,10 +306,11 @@ header {
   vertical-align: middle; flex-shrink: 0;
 }
 [data-theme="dark"]  .stream-logo-img { filter: brightness(1.3) contrast(1.1); }
-[data-theme="light"] .stream-logo-img { filter: brightness(0.85) contrast(1.1); }
+[data-theme="light"] .stream-logo-img { filter: brightness(0.75) contrast(1.2) saturate(1.2); }
 .stream-badges { margin-top: 2px; }
 .modal-plot {
-  margin-top: 18px; font-size: 0.85rem; line-height: 1.65; color: #b0b0c0;
+  margin-top: 18px; font-size: 0.85rem; line-height: 1.65;
+  color: var(--muted);
   border-left: 2px solid var(--border); padding-left: 12px;
 }
 .modal-details { margin-top: 18px; }
@@ -355,7 +382,12 @@ header {
 @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: none; opacity: 1; } }
 @keyframes spin    { to { transform: rotate(360deg); } }
 .stats-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
-.stats-title { font-family: 'Bebas Neue', sans-serif; font-size: 2rem; letter-spacing: 1px; color: var(--accent); }
+.stats-title {
+  font-family: 'Bebas Neue', sans-serif; font-size: 2rem; letter-spacing: 1px;
+  /* Use text colour so emoji + label are both clearly visible in light mode */
+  color: var(--text);
+}
+.stats-title span { color: var(--accent); } /* accent only on text part, set in HTML */
 .stats-close {
   background: var(--surface2); border: 1px solid var(--border);
   color: var(--muted); width: 36px; height: 36px; border-radius: 50%;
@@ -481,6 +513,65 @@ header {
   z-index: 999; box-shadow: 0 4px 16px rgba(0,0,0,0.3);
   max-width: 200px;
 }
+
+/* ============================================================ CALENDAR DAY MODAL */
+.cal-day-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.7);
+  z-index: 500; display: flex; align-items: center; justify-content: center;
+  padding: 20px; backdrop-filter: blur(4px);
+  animation: fadeIn 0.15s ease;
+}
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+.cal-day-box {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 14px; min-width: 320px; max-width: 500px; width: 100%;
+  max-height: 80vh; overflow-y: auto;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+  animation: popIn 0.2s ease;
+}
+@keyframes popIn { from { transform: scale(0.92); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+.cal-day-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 16px 20px 12px; border-bottom: 1px solid var(--border);
+  position: sticky; top: 0; background: var(--surface); z-index: 1;
+}
+.cal-day-date {
+  font-family: 'Bebas Neue', sans-serif; font-size: 1.4rem;
+  color: var(--accent); letter-spacing: 1px;
+}
+.cal-day-count { font-size: 0.78rem; color: var(--muted); margin-top: 1px; }
+.cal-day-close {
+  background: var(--surface2); border: 1px solid var(--border);
+  color: var(--muted); width: 28px; height: 28px; border-radius: 50%;
+  cursor: pointer; font-size: 0.75rem; transition: all 0.2s; flex-shrink: 0;
+}
+.cal-day-close:hover { border-color: var(--accent2); color: var(--accent2); }
+.cal-day-list { padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+.cal-day-item {
+  display: flex; align-items: center; gap: 12px;
+  background: var(--surface2); border: 1px solid var(--border);
+  border-radius: 10px; padding: 10px 12px; cursor: pointer;
+  transition: all 0.15s;
+}
+.cal-day-item:hover { border-color: var(--accent); transform: translateX(3px); }
+.cal-day-poster {
+  width: 36px; height: 54px; border-radius: 5px;
+  object-fit: cover; background: var(--border); flex-shrink: 0;
+}
+.cal-day-poster-ph {
+  width: 36px; height: 54px; border-radius: 5px;
+  background: var(--border); display: flex; align-items: center;
+  justify-content: center; font-size: 1.2rem; flex-shrink: 0;
+}
+.cal-day-info { flex: 1; min-width: 0; }
+.cal-day-title {
+  font-weight: 600; font-size: 0.85rem;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  color: var(--text);
+}
+.cal-day-meta { font-size: 0.72rem; color: var(--muted); margin-top: 3px; }
+.cal-day-rating { font-weight: 700; color: var(--accent); margin-left: 6px; }
+.cal-day-arrow { color: var(--muted); font-size: 0.9rem; flex-shrink: 0; }
 
 /* ============================================================ LOADING / EMPTY */
 .loading { text-align: center; padding: 80px 20px; color: var(--muted); font-size: 1rem; }
