@@ -593,8 +593,43 @@ searchInput.addEventListener('input', () => { clearTimeout(debounce); debounce =
 clearBtn.addEventListener('click', () => {
   searchInput.value = '';
   [genreFilter,langFilter,yearFilter,streamingFilter,ratingFilter].forEach(s=>s.value='');
+  updateFilterDot();
   applyFilters();
 });
+// ── Filter Toggle (bottom sheet on mobile, no-op on desktop) ────
+const filterToggleBtn = document.getElementById('filterToggleBtn');
+const filtersBar      = document.getElementById('filtersBar');
+const filterBackdrop  = document.getElementById('filterBackdrop');
+const filterCloseBtn  = document.getElementById('filterCloseBtn');
+
+function openFilters() {
+  filtersBar.classList.add('open');
+  filterBackdrop.classList.add('visible');
+  document.body.style.overflow = 'hidden';
+}
+function closeFilters() {
+  filtersBar.classList.remove('open');
+  filterBackdrop.classList.remove('visible');
+  document.body.style.overflow = '';
+}
+function updateFilterDot() {
+  const hasActive = genreFilter.value || langFilter.value || yearFilter.value ||
+    streamingFilter.value || ratingFilter.value || searchInput.value.trim();
+  filterToggleBtn.classList.toggle('has-filters', !!hasActive);
+}
+
+filterToggleBtn.addEventListener('click', () => {
+  filtersBar.classList.contains('open') ? closeFilters() : openFilters();
+});
+filterBackdrop.addEventListener('click', closeFilters);
+filterCloseBtn.addEventListener('click', () => { closeFilters(); applyFilters(); });
+
+// Update dot whenever filters change
+[genreFilter,langFilter,yearFilter,streamingFilter,ratingFilter].forEach(s =>
+  s.addEventListener('change', updateFilterDot)
+);
+searchInput.addEventListener('input', updateFilterDot);
+
 document.getElementById('modalClose').addEventListener('click', closeModal);
 document.getElementById('modal').addEventListener('click', e => { if(e.target===document.getElementById('modal')) closeModal(); });
 document.getElementById('editModalClose').addEventListener('click', closeEditModal);
