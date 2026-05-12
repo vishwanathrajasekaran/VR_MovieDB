@@ -34,7 +34,7 @@
     </div>
   </header>
 
-  <!-- TABS + SORT -->
+  <!-- TABS + SORT + FILTER TOGGLE -->
   <div class="main-tabs-bar">
     <div class="main-tabs" id="mainTabs">
       <button class="tab-btn active" data-tab="all">All</button>
@@ -43,35 +43,45 @@
       <button class="tab-btn" data-tab="TV Mini Series">🎞️ Mini Series</button>
       <button class="tab-btn" data-tab="TV Movie">🎥 TV Movies</button>
     </div>
-    <select id="sortSelect" class="sort-select">
-      <option value="">Sort: Default</option>
-      <option value="vr_desc">★ VR Rating ↓</option>
-      <option value="vr_asc">★ VR Rating ↑</option>
-      <option value="imdb_desc">IMDb ↓</option>
-      <option value="year_desc">Year: Newest</option>
-      <option value="year_asc">Year: Oldest</option>
-      <option value="runtime_desc">Runtime: Longest</option>
-      <option value="title_asc">Title A–Z</option>
-      <option value="date_desc">Recently Rated</option>
-    </select>
+    <div class="tabs-right">
+      <select id="sortSelect" class="sort-select">
+        <option value="">Sort: Default</option>
+        <option value="vr_desc">★ VR Rating ↓</option>
+        <option value="vr_asc">★ VR Rating ↑</option>
+        <option value="imdb_desc">IMDb ↓</option>
+        <option value="year_desc">Year: Newest</option>
+        <option value="year_asc">Year: Oldest</option>
+        <option value="runtime_desc">Runtime: Longest</option>
+        <option value="title_asc">Title A–Z</option>
+        <option value="date_desc">Recently Rated</option>
+      </select>
+      <button class="icon-btn filter-toggle-btn" id="filterToggleBtn" title="Filters">⚙️ <span class="filter-btn-text">Filters</span></button>
+    </div>
   </div>
 
-  <!-- FILTERS -->
-  <div class="filters-bar">
-    <input type="text" id="searchInput" placeholder="Search title, cast, director..." />
-    <select id="genreFilter"><option value="">All Genres</option></select>
-    <select id="langFilter"><option value="">All Languages</option></select>
-    <select id="yearFilter"><option value="">All Years</option></select>
-    <select id="streamingFilter"><option value="">All Platforms</option></select>
-    <select id="ratingFilter">
-      <option value="">All VR Ratings</option>
-      <option value="9">9+</option>
-      <option value="8">8+</option>
-      <option value="7">7+</option>
-      <option value="6">6+</option>
-    </select>
-    <button id="clearBtn">✕ Clear</button>
+  <!-- FILTERS (desktop always visible, mobile = bottom sheet) -->
+  <div class="filters-bar" id="filtersBar">
+    <div class="filters-bar-inner">
+      <input type="text" id="searchInput" placeholder="Search title, cast, director..." />
+      <select id="genreFilter"><option value="">All Genres</option></select>
+      <select id="langFilter"><option value="">All Languages</option></select>
+      <select id="yearFilter"><option value="">All Years</option></select>
+      <select id="streamingFilter"><option value="">All Platforms</option></select>
+      <select id="ratingFilter">
+        <option value="">All VR Ratings</option>
+        <option value="9">9+</option>
+        <option value="8">8+</option>
+        <option value="7">7+</option>
+        <option value="6">6+</option>
+      </select>
+      <div class="filter-actions">
+        <button id="clearBtn">✕ Clear</button>
+        <button id="filterCloseBtn" class="filter-close-btn">Done ✓</button>
+      </div>
+    </div>
   </div>
+  <!-- Mobile filter backdrop -->
+  <div class="filter-backdrop" id="filterBackdrop"></div>
 
   <!-- RESULTS BAR -->
   <div class="results-bar">
