@@ -168,30 +168,61 @@ def _scrape_main(driver: webdriver.Chrome, imdb_id: str) -> dict:
 def _scrape_cert(driver: webdriver.Chrome, imdb_id: str) -> str:
     try:
         url  = f"{IMDB_BASE_URL}{imdb_id}/parentalguide"
-        soup = _get_soup_selenium(driver, url)
-        section = soup.find("section", {"id": "certificates"})
-        if not section:
-            return ""
-        for li in section.find_all("li"):
-            text = li.get_text(" ", strip=True)
-            if "United States" in text:
-                parts = text.split(":")
-                if len(parts) > 1:
-                    return parts[-1].strip().split()[0]
-        first = section.find("a")
-        if first:
-            return first.get_text(strip=True).split(":")[-1].strip()
-    except Exception:
-        pass
-    return ""
+        driver.get(url)
+        try:
+            WebDriverWait(driver, 15).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, "main"))
+            )
+        except Exception:
+            time.sleep(3)
+        soup = BeautifulSoup(driver.page_source, "lxml")
 
+        # Try new IMDB layout first
+        for li in soup.find_all("li", {"data-testid": re.compile(r"cert")}):
+            text = li.get_text(" ", strip=True)
+            if "United States" in text or "US" in text:
+                cert = re.search(r":\s*(\S+)", text)
+                if cert:
+                    return cert.group(1)
+
+        # Fallback — old layout
+        section = soup.find("section", {"id": "certificates"})
+        if section:
+            for li in section.find_all("li"):
+                text = li.get_text(" ", strip=True)
+                if "United States" in text:
+                    parts = text.split(":")
+                    if len(parts) > 1:
+                        return parts[-1].strip().split()[0]
+            first = section.find("a")
+            if first:
+                return first.get_text(strip=True).split(":")[-1].strip()
+
+        # Last resort — look for rating badge
+        badge = soup.find("span", {"class": re.compile(r"certificate")})
+        if badge:
+            return badge.get_text(strip=True)
+
+    except Exception as e:
+        print(f"  ⚠️  Cert scrape error: {e}")
+    return ""
 
 # ── Streaming platforms ────────────────────────────────────────────────────
 
 def _scrape_streaming(driver: webdriver.Chrome, imdb_id: str) -> list[str]:
     names = []
     try:
+        # Go back to main page
+        driver.get(f"{IMDB_BASE_URL}{imdb_id}/")
+        try:
+            WebDriverWait(driver, 15).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, "main"))
+            )
+        except Exception:
+            time.sleep(5)
+
         soup = BeautifulSoup(driver.page_source, "lxml")
+
         for testid in [
             "titleMainStreamingBuyProviders",
             "titleMainFreeProviders",
@@ -213,6 +244,9 @@ def _scrape_streaming(driver: webdriver.Chrome, imdb_id: str) -> list[str]:
                     alt = img.get("alt", "").strip()
                     if alt and alt not in names:
                         names.append(alt)
+
+        print(f"  → Streaming found: {names}")
+
     except Exception as e:
         print(f"  ⚠️  Streaming scrape error: {e}")
 
