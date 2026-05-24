@@ -17,6 +17,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.chrome import ChromeDriverManager
 from config import IMDB_BASE_URL, HEADLESS, SCRAPE_TIMEOUT
+from imdb import Cinemagoer
 
 HEADERS = {
     "User-Agent": (
@@ -82,29 +83,81 @@ def _extract_json_ld(soup: BeautifulSoup) -> dict:
 
 
 def _scrape_main(imdb_id: str) -> dict:
-    soup = _get_soup(imdb_id)
-    jld  = _extract_json_ld(soup)
-    print(f"  → JSON-LD keys found: {list(jld.keys())}")
-    print(f"  → Page title tag: {soup.title.string if soup.title else 'NO TITLE TAG'}")
-    d    = {}
+    ia = Cinemagoer()
+    # Strip 'tt' prefix and leading zeros for cinemagoer
+    numeric_id = imdb_id.lstrip("t")
+    movie = ia.get_movie(numeric_id)
 
-    # Title
-    d["TITLE"]          = jld.get("name", "")
-    d["ORIGINAL_TITLE"] = jld.get("alternateName", d["TITLE"])
+    d = {}
+    d["TITLE"]          = movie.get("title", "")
+    d["ORIGINAL_TITLE"] = movie.get("original title", d["TITLE"])
 
     # Type
-    type_map = {
-        "Movie": "Movie", "TVSeries": "TV Series",
-        "TVMiniSeries": "TV Mini Series", "TVMovie": "TV Movie",
-        "TVEpisode": "TV Episode", "Short": "Short",
-        "VideoGame": "Video Game", "Video": "Video",
+    kind_map = {
+        "movie":        "Movie",
+        "tv series":    "TV Series",
+        "tv mini series": "TV Mini Series",
+        "tv movie":     "TV Movie",
+        "tv episode":   "TV Episode",
+        "short":        "Short",
+        "video":        "Video",
+        "video game":   "Video Game",
     }
-    d["TITLE_TYPE"] = type_map.get(jld.get("@type", "Movie"), jld.get("@type", "Movie"))
+    d["TITLE_TYPE"] = kind_map.get(movie.get("kind", "movie"), "Movie")
 
-    # Year & Release Date
-    date_pub        = jld.get("datePublished", "")
-    d["RELEASE_DATE"] = date_pub
-    d["YEAR"]         = date_pub[:4] if date_pub else ""
+    # Year
+    d["YEAR"]         = str(movie.get("year", ""))
+    d["RELEASE_DATE"] = str(movie.get("original air date", movie.get("year", "")))
+
+    # Genres
+    d["GENRES"] = ", ".join(movie.get("genres", []))
+
+    # Runtime
+    runtimes = movie.get("runtimes", [])
+    d["RUNTIME"] = runtimes[0] if runtimes else ""
+
+    # Plot
+    plots = movie.get("plot", [])
+    d["PLOT"] = plots[0].split("::")[0] if plots else ""
+
+    # Ratings
+    d["IMDB_RATING"] = str(movie.get("rating", ""))
+    d["TOTAL_VOTES"] = str(movie.get("votes", ""))
+
+    # Directors
+    d["DIRECTORS"] = ", ".join(
+        p["name"] for p in movie.get("directors", [])[:3]
+    )
+
+    # Writers
+    d["WRITERS"] = ", ".join(
+        p["name"] for p in movie.get("writers", [])[:3]
+    )
+
+    # Cast (top 5)
+    d["CAST"] = ", ".join(
+        p["name"] for p in movie.get("cast", [])[:5]
+    )
+
+    # Poster
+    d["POSTER"] = movie.get("full-size cover url", movie.get("cover url", ""))
+
+    # Languages
+    d["LANGUAGES"] = ", ".join(movie.get("languages", []))
+
+    # Episodes (TV only)
+    d["EPISODES"] = ""
+    if d["TITLE_TYPE"] not in ("Movie", "TV Movie", "Short", "Video"):
+        try:
+            ia.update(movie, "episodes")
+            eps = movie.get("episodes", {})
+            total = sum(len(s) for s in eps.values())
+            d["EPISODES"] = str(total) if total else ""
+        except Exception:
+            pass
+
+    d["CONST"] = imdb_id
+    return d
 
     # Genres
     genres = jld.get("genre", [])
