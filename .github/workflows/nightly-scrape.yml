@@ -32,6 +32,7 @@ jobs:
           SHEET_ID: ${{ secrets.SHEET_ID }}
           SHEET_NAME: ${{ secrets.SHEET_NAME }}
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          IMDB_COOKIES: ${{ secrets.IMDB_COOKIES }}
         run: python scraper/main.py
 
       - name: Done
