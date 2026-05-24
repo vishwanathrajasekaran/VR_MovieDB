@@ -2,6 +2,7 @@
 imdb_scraper.py  —  Scrapes a single IMDB title by ID.
 Uses Selenium (Chrome) for ALL page fetching.
 Injects IMDB cookies for certified/region-aware data.
+Streaming: stores logo URLs only — names resolved via sheet lookup formula.
 """
 import json
 import os
@@ -32,34 +33,6 @@ LOGO_XPATH = (
     '/parent::div//img'
 )
 ROW_ICON_XPATH = '//div[@data-testid="tm-box-update-row"]//img'
-
-# ── Streaming platform mapping — URL UUID fragment → Name ──────────────────
-
-STREAMING_PLATFORMS = {
-    "57468654-5122-4714-aa5b-b078ac2899e7": "Aha",
-    "9306872f-f453-4ecb-87f5-8dfd5876d58b": "Apple TV+",
-    "c73cd5d4-affa-4d2a-aea1-995da4a78798": "ErosNow",
-    "1ab96b2d-c7d9-4f10-b3b0-5762151c59d3": "Jio Hotstar",
-    "a9b565b6-c699-4724-b75d-949043824a84": "Mubi",
-    "3e4fb1b4-b3de-45a4-9faf-d48aa606264f": "MX Player",
-    "9516b142-0c88-4475-a39b-97c06546cdc5": "Netflix",
-    "75f35a85-7a6e-4f1f-bf8b-e4c8556bc4e4": "Prime Video",
-    "566c1905-5f54-4a1a-9a84-b4dec2818d06": "SonyLIV",
-    "e3844785-e8eb-4d56-817b-ef5f3cdf88b2": "Sun NXT",
-    "09fccdd8-b0c4-485b-ac50-a1a8398fa830": "Zee 5",
-    "844404b0-6591-4870-95a2-0865f3dde638": "BBC iPlayer",
-    "d2520a58-e4ee-4adb-94e7-374c372499e7": "Fawesome",
-    "0437c3fd-c8fb-4722-980b-a1faeb5583a4": "Plex Movies",
-    "youtube":                               "YouTube",
-}
-
-
-def _match_platform_name(url: str) -> str:
-    """Match a logo URL to a platform name using UUID fragment."""
-    for fragment, name in STREAMING_PLATFORMS.items():
-        if fragment in url:
-            return name
-    return ""
 
 
 # ── Selenium driver ────────────────────────────────────────────────────────
@@ -267,12 +240,12 @@ def _scrape_main(driver: webdriver.Chrome, imdb_id: str) -> dict:
 
 # ── Streaming platforms ────────────────────────────────────────────────────
 
-def _scrape_streaming(driver: webdriver.Chrome, imdb_id: str) -> list[dict]:
+def _scrape_streaming(driver: webdriver.Chrome, imdb_id: str) -> list[str]:
     """
-    Returns list of dicts: [{"url": "...", "name": "..."}, ...]
-    Max 3 platforms.
+    Returns list of streaming logo image URLs (max 3).
+    Names resolved via VLOOKUP/INDEX-MATCH in Google Sheet.
     """
-    results = []
+    srcs = []
     try:
         driver.get(f"{IMDB_BASE_URL}{imdb_id}/")
 
@@ -287,22 +260,19 @@ def _scrape_streaming(driver: webdriver.Chrome, imdb_id: str) -> list[dict]:
         logos = driver.find_elements(By.XPATH, LOGO_XPATH)
         row   = driver.find_elements(By.XPATH, ROW_ICON_XPATH)
 
-        seen_urls = []
         for img in logos + row:
             src = img.get_attribute("src")
-            if src and src not in seen_urls:
-                seen_urls.append(src)
-                name = _match_platform_name(src)
-                results.append({"url": src, "name": name})
-            if len(results) >= 3:
-                break
+            if src and src not in srcs:
+                srcs.append(src)
 
-        print(f"  → Streaming found: {[r['name'] or 'Unknown' for r in results]}")
+        print(f"  → Streaming URLs found: {len(srcs)}")
+        for s in srcs:
+            print(f"     {s}")
 
     except Exception as e:
         print(f"  ⚠️  Streaming scrape error: {e}")
 
-    return results[:3]
+    return srcs[:3]
 
 
 # ── Public entry point ─────────────────────────────────────────────────────
@@ -324,16 +294,18 @@ def scrape(imdb_id: str) -> dict:
         data = _scrape_main(driver, imdb_id)
         print(f"  → Title: {data.get('TITLE', 'EMPTY')}")
 
-        # Streaming — separate page load with XPath wait
+        # Streaming — store URLs only, names handled by sheet lookup
         print(f"  → Scraping streaming platforms …")
         streaming = _scrape_streaming(driver, imdb_id)
 
-        data["STREAMING_LOGO1"] = streaming[0]["url"]  if len(streaming) > 0 else ""
-        data["STREAMING_LOGO2"] = streaming[1]["url"]  if len(streaming) > 1 else ""
-        data["STREAMING_LOGO3"] = streaming[2]["url"]  if len(streaming) > 2 else ""
-        data["LOGO_NAME1"]      = streaming[0]["name"] if len(streaming) > 0 else ""
-        data["LOGO_NAME2"]      = streaming[1]["name"] if len(streaming) > 1 else ""
-        data["LOGO_NAME3"]      = streaming[2]["name"] if len(streaming) > 2 else ""
+        data["STREAMING_LOGO1"] = streaming[0] if len(streaming) > 0 else ""
+        data["STREAMING_LOGO2"] = streaming[1] if len(streaming) > 1 else ""
+        data["STREAMING_LOGO3"] = streaming[2] if len(streaming) > 2 else ""
+
+        # Names left empty — resolved by sheet VLOOKUP formula
+        data["LOGO_NAME1"] = ""
+        data["LOGO_NAME2"] = ""
+        data["LOGO_NAME3"] = ""
 
         data.setdefault("VR_RATING",  "")
         data.setdefault("SUB_GENRE",  "")
