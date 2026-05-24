@@ -86,7 +86,7 @@ def write_scraped_row(row_number: int, data: dict) -> None:
         if key in MANUAL_FIELDS:
             continue  # Don't overwrite manual fields
         if key in data and data[key]:
-        val = data[key]
+            val = data[key]
     # Store numeric fields as numbers, not strings (prevents Sheets apostrophe)
     NUMERIC_FIELDS = {"YEAR", "RUNTIME", "IMDB_RATING", "TOTAL_VOTES", "RATING_DIFF", "EPISODES"}
     if key in NUMERIC_FIELDS:
