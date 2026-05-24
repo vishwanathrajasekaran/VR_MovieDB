@@ -79,7 +79,7 @@ def write_scraped_row(row_number: int, data: dict) -> None:
 
     # Build updated row — only overwrite fields that the scraper provides
     # Manual fields (VR_RATING, SUB_GENRE, DATE_RATED) are left as-is
-    MANUAL_FIELDS = {"VR_RATING", "SUB_GENRE", "DATE_RATED"}
+    MANUAL_FIELDS = {"VR_RATING", "SUB_GENRE", "DATE_RATED", "LOGO_NAME1", "LOGO_NAME2", "LOGO_NAME3"}
 
     updated = existing[:]
     for key, col_idx in COL.items():
