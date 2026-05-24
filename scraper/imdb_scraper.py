@@ -1,14 +1,13 @@
 """
 imdb_scraper.py  —  Scrapes a single IMDB title by ID.
-Returns a dict with keys matching COL in config.py.
-Uses requests+BeautifulSoup for main page data (fast, stable).
+Uses cinemagoer (IMDbPY) — bypasses IP blocks on GitHub Actions.
 Uses Selenium only for streaming platform names (JS-rendered).
 """
-import json
 import re
 import time
 import requests
 from bs4 import BeautifulSoup
+from imdb import Cinemagoer
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
@@ -17,7 +16,6 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.chrome import ChromeDriverManager
 from config import IMDB_BASE_URL, HEADLESS, SCRAPE_TIMEOUT
-from imdb import Cinemagoer
 
 HEADERS = {
     "User-Agent": (
@@ -26,15 +24,6 @@ HEADERS = {
         "Chrome/124.0.0.0 Safari/537.36"
     ),
     "Accept-Language": "en-US,en;q=0.9",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-    "Accept-Encoding": "gzip, deflate, br",
-    "Connection": "keep-alive",
-    "Upgrade-Insecure-Requests": "1",
-    "Sec-Fetch-Dest": "document",
-    "Sec-Fetch-Mode": "navigate",
-    "Sec-Fetch-Site": "none",
-    "Sec-Fetch-User": "?1",
-    "Cache-Control": "max-age=0",
 }
 
 
@@ -50,41 +39,15 @@ def _build_driver() -> webdriver.Chrome:
     options.add_argument("--window-size=1920,1080")
     options.add_argument(f"user-agent={HEADERS['User-Agent']}")
     options.add_argument("--lang=en-US")
-    # Use system Chrome on GitHub Actions runner
     options.binary_location = "/usr/bin/google-chrome"
     service = Service(ChromeDriverManager().install())
     return webdriver.Chrome(service=service, options=options)
 
 
-# ── Main page scrape (requests + BS4) ─────────────────────────────────────
-
-def _get_soup(imdb_id: str) -> BeautifulSoup:
-    url = f"{IMDB_BASE_URL}{imdb_id}/"
-    session = requests.Session()
-    session.headers.update(HEADERS)
-    # Prime session with a homepage visit first
-    try:
-        session.get("https://www.imdb.com/", timeout=SCRAPE_TIMEOUT)
-    except Exception:
-        pass
-    resp = session.get(url, timeout=SCRAPE_TIMEOUT)
-    resp.raise_for_status()
-    return BeautifulSoup(resp.text, "lxml")
-
-
-def _extract_json_ld(soup: BeautifulSoup) -> dict:
-    tag = soup.find("script", {"type": "application/ld+json"})
-    if tag:
-        try:
-            return json.loads(tag.string)
-        except Exception:
-            pass
-    return {}
-
+# ── Main page scrape (cinemagoer) ──────────────────────────────────────────
 
 def _scrape_main(imdb_id: str) -> dict:
     ia = Cinemagoer()
-    # Strip 'tt' prefix and leading zeros for cinemagoer
     numeric_id = imdb_id.lstrip("t")
     movie = ia.get_movie(numeric_id)
 
@@ -92,148 +55,49 @@ def _scrape_main(imdb_id: str) -> dict:
     d["TITLE"]          = movie.get("title", "")
     d["ORIGINAL_TITLE"] = movie.get("original title", d["TITLE"])
 
-    # Type
     kind_map = {
-        "movie":        "Movie",
-        "tv series":    "TV Series",
+        "movie":          "Movie",
+        "tv series":      "TV Series",
         "tv mini series": "TV Mini Series",
-        "tv movie":     "TV Movie",
-        "tv episode":   "TV Episode",
-        "short":        "Short",
-        "video":        "Video",
-        "video game":   "Video Game",
+        "tv movie":       "TV Movie",
+        "tv episode":     "TV Episode",
+        "short":          "Short",
+        "video":          "Video",
+        "video game":     "Video Game",
     }
     d["TITLE_TYPE"] = kind_map.get(movie.get("kind", "movie"), "Movie")
 
-    # Year
     d["YEAR"]         = str(movie.get("year", ""))
     d["RELEASE_DATE"] = str(movie.get("original air date", movie.get("year", "")))
+    d["GENRES"]       = ", ".join(movie.get("genres", []))
 
-    # Genres
-    d["GENRES"] = ", ".join(movie.get("genres", []))
-
-    # Runtime
-    runtimes = movie.get("runtimes", [])
+    runtimes   = movie.get("runtimes", [])
     d["RUNTIME"] = runtimes[0] if runtimes else ""
 
-    # Plot
-    plots = movie.get("plot", [])
+    plots    = movie.get("plot", [])
     d["PLOT"] = plots[0].split("::")[0] if plots else ""
 
-    # Ratings
     d["IMDB_RATING"] = str(movie.get("rating", ""))
     d["TOTAL_VOTES"] = str(movie.get("votes", ""))
 
-    # Directors
-    d["DIRECTORS"] = ", ".join(
-        p["name"] for p in movie.get("directors", [])[:3]
-    )
-
-    # Writers
-    d["WRITERS"] = ", ".join(
-        p["name"] for p in movie.get("writers", [])[:3]
-    )
-
-    # Cast (top 5)
-    d["CAST"] = ", ".join(
-        p["name"] for p in movie.get("cast", [])[:5]
-    )
-
-    # Poster
-    d["POSTER"] = movie.get("full-size cover url", movie.get("cover url", ""))
-
-    # Languages
+    d["DIRECTORS"] = ", ".join(p["name"] for p in movie.get("directors", [])[:3])
+    d["WRITERS"]   = ", ".join(p["name"] for p in movie.get("writers", [])[:3])
+    d["CAST"]      = ", ".join(p["name"] for p in movie.get("cast", [])[:5])
+    d["POSTER"]    = movie.get("full-size cover url", movie.get("cover url", ""))
     d["LANGUAGES"] = ", ".join(movie.get("languages", []))
 
-    # Episodes (TV only)
     d["EPISODES"] = ""
     if d["TITLE_TYPE"] not in ("Movie", "TV Movie", "Short", "Video"):
         try:
             ia.update(movie, "episodes")
-            eps = movie.get("episodes", {})
+            eps   = movie.get("episodes", {})
             total = sum(len(s) for s in eps.values())
             d["EPISODES"] = str(total) if total else ""
         except Exception:
             pass
 
     d["CONST"] = imdb_id
-    return d
-
-    # Genres
-    genres = jld.get("genre", [])
-    if isinstance(genres, str):
-        genres = [genres]
-    d["GENRES"] = ", ".join(genres)
-
-    # Runtime → minutes
-    duration = jld.get("duration", "")
-    if duration:
-        m = re.search(r"PT(?:(\d+)H)?(?:(\d+)M)?", duration)
-        if m:
-            h = int(m.group(1) or 0)
-            mn = int(m.group(2) or 0)
-            d["RUNTIME"] = str(h * 60 + mn)
-        else:
-            d["RUNTIME"] = ""
-    else:
-        d["RUNTIME"] = ""
-
-    # Plot
-    d["PLOT"] = jld.get("description", "")
-
-    # Ratings
-    agg = jld.get("aggregateRating", {})
-    d["IMDB_RATING"] = str(agg.get("ratingValue", ""))
-    d["TOTAL_VOTES"] = str(agg.get("ratingCount", ""))
-
-    # Directors
-    directors = jld.get("director", [])
-    if isinstance(directors, dict):
-        directors = [directors]
-    d["DIRECTORS"] = ", ".join(x.get("name", "") for x in directors)
-
-    # Writers
-    creators = jld.get("creator", [])
-    if isinstance(creators, dict):
-        creators = [creators]
-    d["WRITERS"] = ", ".join(
-        x.get("name", "") for x in creators if x.get("@type") == "Person"
-    )
-
-    # Cast (top 5)
-    actors = jld.get("actor", [])
-    if isinstance(actors, dict):
-        actors = [actors]
-    d["CAST"] = ", ".join(x.get("name", "") for x in actors[:5])
-
-    # Poster
-    d["POSTER"] = jld.get("image", "")
-
-    # Languages
-    try:
-        lang_li = soup.find("li", {"data-testid": "title-details-languages"})
-        if lang_li:
-            d["LANGUAGES"] = ", ".join(a.get_text(strip=True) for a in lang_li.find_all("a"))
-        else:
-            d["LANGUAGES"] = ""
-    except Exception:
-        d["LANGUAGES"] = ""
-
-    # Episodes (TV only)
-    d["EPISODES"] = ""
-    if d["TITLE_TYPE"] not in ("Movie", "TV Movie", "Short", "Video"):
-        try:
-            ep_el = soup.find("span", {"data-testid": "episodes-header"})
-            if not ep_el:
-                ep_el = soup.find("a", href=re.compile(r"/episodes"))
-            if ep_el:
-                nums = re.findall(r"\d+", ep_el.get_text())
-                if nums:
-                    d["EPISODES"] = nums[-1]
-        except Exception:
-            pass
-
-    d["CONST"] = imdb_id
+    print(f"  → Title found: {d['TITLE']}")
     return d
 
 
@@ -245,7 +109,6 @@ def _scrape_cert(imdb_id: str) -> str:
         soup = BeautifulSoup(
             requests.get(url, headers=HEADERS, timeout=SCRAPE_TIMEOUT).text, "lxml"
         )
-        # Prefer US cert
         section = soup.find("section", {"id": "certificates"})
         if not section:
             return ""
@@ -255,7 +118,6 @@ def _scrape_cert(imdb_id: str) -> str:
                 parts = text.split(":")
                 if len(parts) > 1:
                     return parts[-1].strip().split()[0]
-        # Fallback — first cert
         first = section.find("a")
         if first:
             return first.get_text(strip=True).split(":")[-1].strip()
@@ -272,7 +134,6 @@ def _scrape_streaming(imdb_id: str) -> list[str]:
     try:
         driver = _build_driver()
         driver.get(f"{IMDB_BASE_URL}{imdb_id}/")
-
         try:
             WebDriverWait(driver, 15).until(
                 EC.presence_of_element_located((By.CSS_SELECTOR, "main"))
@@ -282,7 +143,6 @@ def _scrape_streaming(imdb_id: str) -> list[str]:
 
         soup = BeautifulSoup(driver.page_source, "lxml")
 
-        # Primary: JustWatch / streaming providers section
         for testid in [
             "titleMainStreamingBuyProviders",
             "titleMainFreeProviders",
@@ -297,7 +157,6 @@ def _scrape_streaming(imdb_id: str) -> list[str]:
                 if names:
                     break
 
-        # Fallback: any lockup image with alt text in the page
         if not names:
             for a in soup.find_all("a", class_=re.compile(r"ipc-lockup")):
                 img = a.find("img")
@@ -318,10 +177,6 @@ def _scrape_streaming(imdb_id: str) -> list[str]:
 # ── Public entry point ─────────────────────────────────────────────────────
 
 def scrape(imdb_id: str) -> dict:
-    """
-    Scrape a single IMDB title. Returns dict with COL keys.
-    Raises ValueError for invalid ID, Exception for scrape failures.
-    """
     imdb_id = imdb_id.strip()
     if not re.match(r"^tt\d+$", imdb_id):
         raise ValueError(f"Invalid IMDB ID: {imdb_id}")
@@ -338,12 +193,10 @@ def scrape(imdb_id: str) -> dict:
     data["LOGO_NAME2"] = streaming[1] if len(streaming) > 1 else ""
     data["LOGO_NAME3"] = streaming[2] if len(streaming) > 2 else ""
 
-    # Streaming logo URLs — left empty; your Apps Script / platforms sheet handles these
     data["STREAMING_LOGO1"] = ""
     data["STREAMING_LOGO2"] = ""
     data["STREAMING_LOGO3"] = ""
 
-    # Fields filled manually by you — leave blank, sheet.py won't overwrite them
     data.setdefault("VR_RATING",  "")
     data.setdefault("SUB_GENRE",  "")
     data.setdefault("DATE_RATED", "")
