@@ -1,0 +1,7 @@
+selenium==4.21.0
+beautifulsoup4==4.12.3
+requests==2.31.0
+lxml==5.2.2
+gspread==6.1.2
+google-auth==2.29.0
+webdriver-manager==4.0.1
