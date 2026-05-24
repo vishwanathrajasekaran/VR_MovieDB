@@ -1,12 +1,12 @@
 """
 imdb_scraper.py  —  Scrapes a single IMDB title by ID.
-Uses Selenium (Chrome) for ALL page fetching — bypasses IMDB bot blocks.
-requests is blocked by IMDB on GitHub Actions; Chrome is not.
+Uses Selenium (Chrome) for ALL page fetching.
+Injects IMDB cookies for certified/region-aware data.
 """
 import json
+import os
 import re
 import time
-import requests
 from bs4 import BeautifulSoup
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
@@ -22,7 +22,6 @@ HEADERS = {
         "AppleWebKit/537.36 (KHTML, like Gecko) "
         "Chrome/124.0.0.0 Safari/537.36"
     ),
-    "Accept-Language": "en-US,en;q=0.9",
 }
 
 
@@ -41,14 +40,45 @@ def _build_driver() -> webdriver.Chrome:
     options.add_argument("--disable-blink-features=AutomationControlled")
     options.add_experimental_option("excludeSwitches", ["enable-automation"])
     options.add_experimental_option("useAutomationExtension", False)
-    # Use system Chrome — already installed on ubuntu-latest
     options.binary_location = "/usr/bin/google-chrome"
-    # Use system chromedriver — avoid webdriver-manager bug
     service = Service("/usr/bin/chromedriver")
     return webdriver.Chrome(service=service, options=options)
 
 
-def _get_soup_selenium(driver: webdriver.Chrome, url: str) -> BeautifulSoup:
+def _inject_cookies(driver: webdriver.Chrome) -> None:
+    """Load IMDB cookies from GitHub Secret into the browser session."""
+    raw = os.environ.get("IMDB_COOKIES", "").strip()
+    if not raw:
+        print("  ⚠️  No IMDB_COOKIES secret found — scraping without login")
+        return
+
+    try:
+        cookies = json.loads(raw)
+        # Must visit the domain first before injecting cookies
+        driver.get("https://www.imdb.com")
+        time.sleep(2)
+        for cookie in cookies:
+            # Selenium only accepts specific keys
+            c = {
+                "name":   cookie["name"],
+                "value":  cookie["value"],
+                "domain": cookie.get("domain", ".imdb.com"),
+                "path":   cookie.get("path", "/"),
+                "secure": cookie.get("secure", False),
+            }
+            # Add expiry only if not a session cookie
+            if "expirationDate" in cookie:
+                c["expiry"] = int(cookie["expirationDate"])
+            try:
+                driver.add_cookie(c)
+            except Exception:
+                pass  # Skip any invalid cookies silently
+        print(f"  → Injected {len(cookies)} cookies")
+    except Exception as e:
+        print(f"  ⚠️  Cookie injection failed: {e}")
+
+
+def _get_soup(driver: webdriver.Chrome, url: str) -> BeautifulSoup:
     driver.get(url)
     try:
         WebDriverWait(driver, 20).until(
@@ -71,11 +101,45 @@ def _extract_json_ld(soup: BeautifulSoup) -> dict:
     return {}
 
 
-# ── Main scrape ────────────────────────────────────────────────────────────
+# ── Certification ──────────────────────────────────────────────────────────
+
+def _scrape_cert(soup: BeautifulSoup) -> str:
+    """
+    Extract certification from already-loaded main page.
+    Logged-in Indian account → gets Indian cert (UA, UA13+, UA16+, A)
+    No login / US context → gets US cert (PG-13, R, G etc.)
+    Falls back through multiple selectors.
+    """
+    try:
+        # Method 1 — data-testid (most reliable, new IMDB layout)
+        el = soup.find("a", {"href": re.compile(r"parentalguide")})
+        if el:
+            cert = el.get_text(strip=True)
+            if cert and cert not in ("See all certifications",):
+                return cert
+
+        # Method 2 — contentRating from JSON-LD
+        jld = _extract_json_ld(soup)
+        cert = jld.get("contentRating", "")
+        if cert:
+            return cert
+
+        # Method 3 — look for certification badge near runtime
+        for li in soup.find_all("li", {"class": re.compile(r"ipc-inline-list")}):
+            text = li.get_text(strip=True)
+            if re.match(r"^(G|PG|PG-13|R|NC-17|U|UA|UA12\+|UA13\+|UA16\+|A|TV-Y|TV-G|TV-PG|TV-14|TV-MA)$", text):
+                return text
+
+    except Exception as e:
+        print(f"  ⚠️  Cert extraction error: {e}")
+    return ""
+
+
+# ── Main page scrape ───────────────────────────────────────────────────────
 
 def _scrape_main(driver: webdriver.Chrome, imdb_id: str) -> dict:
     url  = f"{IMDB_BASE_URL}{imdb_id}/"
-    soup = _get_soup_selenium(driver, url)
+    soup = _get_soup(driver, url)
     jld  = _extract_json_ld(soup)
 
     print(f"  → JSON-LD keys: {list(jld.keys())}")
@@ -92,7 +156,7 @@ def _scrape_main(driver: webdriver.Chrome, imdb_id: str) -> dict:
     }
     d["TITLE_TYPE"] = type_map.get(jld.get("@type", "Movie"), jld.get("@type", "Movie"))
 
-    date_pub        = jld.get("datePublished", "")
+    date_pub          = jld.get("datePublished", "")
     d["RELEASE_DATE"] = date_pub
     d["YEAR"]         = date_pub[:4] if date_pub else ""
 
@@ -159,70 +223,20 @@ def _scrape_main(driver: webdriver.Chrome, imdb_id: str) -> dict:
         except Exception:
             pass
 
+    # Certification from main page (uses injected cookies for region)
+    d["CERTIFICATION"] = _scrape_cert(soup)
+    print(f"  → Certification: {d['CERTIFICATION']}")
+
     d["CONST"] = imdb_id
     return d
 
 
-# ── Certification ──────────────────────────────────────────────────────────
-
-def _scrape_cert(driver: webdriver.Chrome, imdb_id: str) -> str:
-    try:
-        url  = f"{IMDB_BASE_URL}{imdb_id}/parentalguide"
-        driver.get(url)
-        try:
-            WebDriverWait(driver, 15).until(
-                EC.presence_of_element_located((By.CSS_SELECTOR, "main"))
-            )
-        except Exception:
-            time.sleep(3)
-        soup = BeautifulSoup(driver.page_source, "lxml")
-
-        # Try new IMDB layout first
-        for li in soup.find_all("li", {"data-testid": re.compile(r"cert")}):
-            text = li.get_text(" ", strip=True)
-            if "United States" in text or "US" in text:
-                cert = re.search(r":\s*(\S+)", text)
-                if cert:
-                    return cert.group(1)
-
-        # Fallback — old layout
-        section = soup.find("section", {"id": "certificates"})
-        if section:
-            for li in section.find_all("li"):
-                text = li.get_text(" ", strip=True)
-                if "United States" in text:
-                    parts = text.split(":")
-                    if len(parts) > 1:
-                        return parts[-1].strip().split()[0]
-            first = section.find("a")
-            if first:
-                return first.get_text(strip=True).split(":")[-1].strip()
-
-        # Last resort — look for rating badge
-        badge = soup.find("span", {"class": re.compile(r"certificate")})
-        if badge:
-            return badge.get_text(strip=True)
-
-    except Exception as e:
-        print(f"  ⚠️  Cert scrape error: {e}")
-    return ""
-
 # ── Streaming platforms ────────────────────────────────────────────────────
 
-def _scrape_streaming(driver: webdriver.Chrome, imdb_id: str) -> list[str]:
+def _scrape_streaming(soup: BeautifulSoup, imdb_id: str) -> list[str]:
+    """Extract streaming platform names from already-loaded main page."""
     names = []
     try:
-        # Go back to main page
-        driver.get(f"{IMDB_BASE_URL}{imdb_id}/")
-        try:
-            WebDriverWait(driver, 15).until(
-                EC.presence_of_element_located((By.CSS_SELECTOR, "main"))
-            )
-        except Exception:
-            time.sleep(5)
-
-        soup = BeautifulSoup(driver.page_source, "lxml")
-
         for testid in [
             "titleMainStreamingBuyProviders",
             "titleMainFreeProviders",
@@ -264,19 +278,22 @@ def scrape(imdb_id: str) -> dict:
     try:
         driver = _build_driver()
 
+        # Inject cookies FIRST — before loading any IMDB page
+        _inject_cookies(driver)
+
+        # Scrape main page — reuse soup for cert + streaming
         print(f"  → Scraping main page …")
+        url  = f"{IMDB_BASE_URL}{imdb_id}/"
+        soup = _get_soup(driver, url)
+        jld  = _extract_json_ld(soup)
+
+        print(f"  → JSON-LD keys: {list(jld.keys())}")
         data = _scrape_main(driver, imdb_id)
-        print(f"  → Title found: {data.get('TITLE', 'EMPTY')}")
+        print(f"  → Title: {data.get('TITLE', 'EMPTY')}")
 
-        print(f"  → Scraping certification …")
-        data["CERTIFICATION"] = _scrape_cert(driver, imdb_id)
-
+        # Streaming — reuse already loaded page source
         print(f"  → Scraping streaming platforms …")
-        # Reuse the already-loaded main page for streaming
-        data["LOGO_NAME1"] = ""
-        data["LOGO_NAME2"] = ""
-        data["LOGO_NAME3"] = ""
-        streaming = _scrape_streaming(driver, imdb_id)
+        streaming = _scrape_streaming(soup, imdb_id)
         data["LOGO_NAME1"] = streaming[0] if len(streaming) > 0 else ""
         data["LOGO_NAME2"] = streaming[1] if len(streaming) > 1 else ""
         data["LOGO_NAME3"] = streaming[2] if len(streaming) > 2 else ""
