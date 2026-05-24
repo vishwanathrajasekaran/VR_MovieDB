@@ -4,8 +4,8 @@
  */
 
 const SHEETS_CONFIG = {
-  API_KEY:    'AIzaSyDJWVKQHTfNHPHTsJRZGOHJ3LSq4uGzRTw',
-  SHEET_ID:   '1-U-WVdUzW_Jw44alwYN-917WlHXmirx3bGJPIljKoSI',
+  API_KEY:    process.env.VITE_SHEETS_API_KEY,
+  SHEET_ID:   process.env.VITE_SHEET_ID,
   SHEET_NAME: 'MasterSheet',
 };
 
