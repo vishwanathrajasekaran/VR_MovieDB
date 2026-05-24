@@ -242,20 +242,19 @@ def _scrape_main(driver: webdriver.Chrome, imdb_id: str) -> dict:
 
 def _scrape_streaming(driver: webdriver.Chrome, imdb_id: str) -> list[str]:
     """
-    Returns list of streaming logo image URLs (max 3).
-    Names resolved via VLOOKUP/INDEX-MATCH in Google Sheet.
+    Returns list of all streaming logo URLs found on the page.
+    Uses original XPath approach — logos + row icons combined.
     """
     srcs = []
     try:
         driver.get(f"{IMDB_BASE_URL}{imdb_id}/")
 
-        # Wait for streaming section to appear
         try:
             WebDriverWait(driver, 15).until(
                 EC.presence_of_element_located((By.XPATH, LOGO_XPATH))
             )
         except Exception:
-            pass  # Section may not exist for this title
+            pass
 
         logos = driver.find_elements(By.XPATH, LOGO_XPATH)
         row   = driver.find_elements(By.XPATH, ROW_ICON_XPATH)
@@ -272,7 +271,7 @@ def _scrape_streaming(driver: webdriver.Chrome, imdb_id: str) -> list[str]:
     except Exception as e:
         print(f"  ⚠️  Streaming scrape error: {e}")
 
-    return srcs[:3]
+    return srcs
 
 
 # ── Public entry point ─────────────────────────────────────────────────────
