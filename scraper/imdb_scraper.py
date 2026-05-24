@@ -25,6 +25,15 @@ HEADERS = {
         "Chrome/124.0.0.0 Safari/537.36"
     ),
     "Accept-Language": "en-US,en;q=0.9",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Connection": "keep-alive",
+    "Upgrade-Insecure-Requests": "1",
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "none",
+    "Sec-Fetch-User": "?1",
+    "Cache-Control": "max-age=0",
 }
 
 
@@ -50,7 +59,14 @@ def _build_driver() -> webdriver.Chrome:
 
 def _get_soup(imdb_id: str) -> BeautifulSoup:
     url = f"{IMDB_BASE_URL}{imdb_id}/"
-    resp = requests.get(url, headers=HEADERS, timeout=SCRAPE_TIMEOUT)
+    session = requests.Session()
+    session.headers.update(HEADERS)
+    # Prime session with a homepage visit first
+    try:
+        session.get("https://www.imdb.com/", timeout=SCRAPE_TIMEOUT)
+    except Exception:
+        pass
+    resp = session.get(url, timeout=SCRAPE_TIMEOUT)
     resp.raise_for_status()
     return BeautifulSoup(resp.text, "lxml")
 
