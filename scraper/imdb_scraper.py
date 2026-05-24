@@ -64,7 +64,7 @@ def _inject_cookies(driver: webdriver.Chrome) -> None:
     try:
         cookies = json.loads(raw)
         driver.get("https://www.imdb.com")
-        time.sleep(2)
+        time.sleep(1)
         for cookie in cookies:
             c = {
                 "name":   cookie["name"],
@@ -87,7 +87,7 @@ def _inject_cookies(driver: webdriver.Chrome) -> None:
 def _get_soup(driver: webdriver.Chrome, url: str) -> BeautifulSoup:
     driver.get(url)
     try:
-        WebDriverWait(driver, 20).until(
+        WebDriverWait(driver, 10).until(
             EC.presence_of_element_located((By.CSS_SELECTOR, "main"))
         )
     except Exception:
@@ -250,7 +250,7 @@ def _scrape_streaming(driver: webdriver.Chrome, imdb_id: str) -> list[str]:
         driver.get(f"{IMDB_BASE_URL}{imdb_id}/")
 
         try:
-            WebDriverWait(driver, 15).until(
+            WebDriverWait(driver, 10).until(
                 EC.presence_of_element_located((By.XPATH, LOGO_XPATH))
             )
         except Exception:
