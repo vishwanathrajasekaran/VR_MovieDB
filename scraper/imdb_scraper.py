@@ -233,10 +233,28 @@ def _scrape_main(driver: webdriver.Chrome, imdb_id: str) -> dict:
 
 # ── Streaming platforms ────────────────────────────────────────────────────
 
-def _scrape_streaming(soup: BeautifulSoup, imdb_id: str) -> list[str]:
-    """Extract streaming platform names from already-loaded main page."""
+def _scrape_streaming(driver: webdriver.Chrome, imdb_id: str) -> list[str]:
     names = []
     try:
+        # Reload main page and wait for streaming section specifically
+        driver.get(f"{IMDB_BASE_URL}{imdb_id}/")
+        
+        # Wait up to 15 seconds for streaming section to appear
+        try:
+            WebDriverWait(driver, 15).until(
+                EC.presence_of_element_located((
+                    By.XPATH,
+                    "//*[@data-testid='titleMainStreamingBuyProviders' or "
+                    "@data-testid='titleMainFreeProviders' or "
+                    "@data-testid='titleMainAllProviders']"
+                ))
+            )
+        except Exception:
+            # Section may not exist for this title — not an error
+            pass
+
+        soup = BeautifulSoup(driver.page_source, "lxml")
+
         for testid in [
             "titleMainStreamingBuyProviders",
             "titleMainFreeProviders",
@@ -250,14 +268,6 @@ def _scrape_streaming(soup: BeautifulSoup, imdb_id: str) -> list[str]:
                         names.append(alt)
                 if names:
                     break
-
-        if not names:
-            for a in soup.find_all("a", class_=re.compile(r"ipc-lockup")):
-                img = a.find("img")
-                if img:
-                    alt = img.get("alt", "").strip()
-                    if alt and alt not in names:
-                        names.append(alt)
 
         print(f"  → Streaming found: {names}")
 
