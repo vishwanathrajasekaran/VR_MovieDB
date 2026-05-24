@@ -110,10 +110,9 @@ def write_scraped_row(row_number: int, data: dict) -> None:
 def _decade(year: str) -> str:
     try:
         y = int(year)
-        return f"{(y // 10) * 10}s"
+        return str((y // 10) * 10)
     except Exception:
         return ""
-
 
 def _safe_float(val) -> float | None:
     try:
