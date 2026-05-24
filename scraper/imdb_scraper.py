@@ -84,6 +84,8 @@ def _extract_json_ld(soup: BeautifulSoup) -> dict:
 def _scrape_main(imdb_id: str) -> dict:
     soup = _get_soup(imdb_id)
     jld  = _extract_json_ld(soup)
+    print(f"  → JSON-LD keys found: {list(jld.keys())}")
+    print(f"  → Page title tag: {soup.title.string if soup.title else 'NO TITLE TAG'}")
     d    = {}
 
     # Title
