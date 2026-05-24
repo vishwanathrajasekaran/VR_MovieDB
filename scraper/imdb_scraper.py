@@ -24,6 +24,43 @@ HEADERS = {
     ),
 }
 
+# ── Streaming XPaths ───────────────────────────────────────────────────────
+
+LOGO_XPATH = (
+    '//div[@data-testid="tm-box-woc-text" and '
+    '(text()="STREAMING" or text()="PREFERRED" or text()="RENT/BUY")]'
+    '/parent::div//img'
+)
+ROW_ICON_XPATH = '//div[@data-testid="tm-box-update-row"]//img'
+
+# ── Streaming platform mapping — URL UUID fragment → Name ──────────────────
+
+STREAMING_PLATFORMS = {
+    "57468654-5122-4714-aa5b-b078ac2899e7": "Aha",
+    "9306872f-f453-4ecb-87f5-8dfd5876d58b": "Apple TV+",
+    "c73cd5d4-affa-4d2a-aea1-995da4a78798": "ErosNow",
+    "1ab96b2d-c7d9-4f10-b3b0-5762151c59d3": "Jio Hotstar",
+    "a9b565b6-c699-4724-b75d-949043824a84": "Mubi",
+    "3e4fb1b4-b3de-45a4-9faf-d48aa606264f": "MX Player",
+    "9516b142-0c88-4475-a39b-97c06546cdc5": "Netflix",
+    "75f35a85-7a6e-4f1f-bf8b-e4c8556bc4e4": "Prime Video",
+    "566c1905-5f54-4a1a-9a84-b4dec2818d06": "SonyLIV",
+    "e3844785-e8eb-4d56-817b-ef5f3cdf88b2": "Sun NXT",
+    "09fccdd8-b0c4-485b-ac50-a1a8398fa830": "Zee 5",
+    "844404b0-6591-4870-95a2-0865f3dde638": "BBC iPlayer",
+    "d2520a58-e4ee-4adb-94e7-374c372499e7": "Fawesome",
+    "0437c3fd-c8fb-4722-980b-a1faeb5583a4": "Plex Movies",
+    "youtube":                               "YouTube",
+}
+
+
+def _match_platform_name(url: str) -> str:
+    """Match a logo URL to a platform name using UUID fragment."""
+    for fragment, name in STREAMING_PLATFORMS.items():
+        if fragment in url:
+            return name
+    return ""
+
 
 # ── Selenium driver ────────────────────────────────────────────────────────
 
@@ -51,14 +88,11 @@ def _inject_cookies(driver: webdriver.Chrome) -> None:
     if not raw:
         print("  ⚠️  No IMDB_COOKIES secret found — scraping without login")
         return
-
     try:
         cookies = json.loads(raw)
-        # Must visit the domain first before injecting cookies
         driver.get("https://www.imdb.com")
         time.sleep(2)
         for cookie in cookies:
-            # Selenium only accepts specific keys
             c = {
                 "name":   cookie["name"],
                 "value":  cookie["value"],
@@ -66,13 +100,12 @@ def _inject_cookies(driver: webdriver.Chrome) -> None:
                 "path":   cookie.get("path", "/"),
                 "secure": cookie.get("secure", False),
             }
-            # Add expiry only if not a session cookie
             if "expirationDate" in cookie:
                 c["expiry"] = int(cookie["expirationDate"])
             try:
                 driver.add_cookie(c)
             except Exception:
-                pass  # Skip any invalid cookies silently
+                pass
         print(f"  → Injected {len(cookies)} cookies")
     except Exception as e:
         print(f"  ⚠️  Cookie injection failed: {e}")
@@ -108,10 +141,9 @@ def _scrape_cert(soup: BeautifulSoup) -> str:
     Extract certification from already-loaded main page.
     Logged-in Indian account → gets Indian cert (UA, UA13+, UA16+, A)
     No login / US context → gets US cert (PG-13, R, G etc.)
-    Falls back through multiple selectors.
     """
     try:
-        # Method 1 — data-testid (most reliable, new IMDB layout)
+        # Method 1 — parentalguide link text (most reliable)
         el = soup.find("a", {"href": re.compile(r"parentalguide")})
         if el:
             cert = el.get_text(strip=True)
@@ -119,15 +151,18 @@ def _scrape_cert(soup: BeautifulSoup) -> str:
                 return cert
 
         # Method 2 — contentRating from JSON-LD
-        jld = _extract_json_ld(soup)
+        jld  = _extract_json_ld(soup)
         cert = jld.get("contentRating", "")
         if cert:
             return cert
 
-        # Method 3 — look for certification badge near runtime
+        # Method 3 — certification badge near runtime
         for li in soup.find_all("li", {"class": re.compile(r"ipc-inline-list")}):
             text = li.get_text(strip=True)
-            if re.match(r"^(G|PG|PG-13|R|NC-17|U|UA|UA12\+|UA13\+|UA16\+|A|TV-Y|TV-G|TV-PG|TV-14|TV-MA)$", text):
+            if re.match(
+                r"^(G|PG|PG-13|R|NC-17|U|UA|UA12\+|UA13\+|UA16\+|A|TV-Y|TV-G|TV-PG|TV-14|TV-MA)$",
+                text
+            ):
                 return text
 
     except Exception as e:
@@ -223,7 +258,6 @@ def _scrape_main(driver: webdriver.Chrome, imdb_id: str) -> dict:
         except Exception:
             pass
 
-    # Certification from main page (uses injected cookies for region)
     d["CERTIFICATION"] = _scrape_cert(soup)
     print(f"  → Certification: {d['CERTIFICATION']}")
 
@@ -233,48 +267,42 @@ def _scrape_main(driver: webdriver.Chrome, imdb_id: str) -> dict:
 
 # ── Streaming platforms ────────────────────────────────────────────────────
 
-def _scrape_streaming(driver: webdriver.Chrome, imdb_id: str) -> list[str]:
-    names = []
+def _scrape_streaming(driver: webdriver.Chrome, imdb_id: str) -> list[dict]:
+    """
+    Returns list of dicts: [{"url": "...", "name": "..."}, ...]
+    Max 3 platforms.
+    """
+    results = []
     try:
-        # Reload main page and wait for streaming section specifically
         driver.get(f"{IMDB_BASE_URL}{imdb_id}/")
-        
-        # Wait up to 15 seconds for streaming section to appear
+
+        # Wait for streaming section to appear
         try:
             WebDriverWait(driver, 15).until(
-                EC.presence_of_element_located((
-                    By.XPATH,
-                    "//*[@data-testid='titleMainStreamingBuyProviders' or "
-                    "@data-testid='titleMainFreeProviders' or "
-                    "@data-testid='titleMainAllProviders']"
-                ))
+                EC.presence_of_element_located((By.XPATH, LOGO_XPATH))
             )
         except Exception:
-            # Section may not exist for this title — not an error
-            pass
+            pass  # Section may not exist for this title
 
-        soup = BeautifulSoup(driver.page_source, "lxml")
+        logos = driver.find_elements(By.XPATH, LOGO_XPATH)
+        row   = driver.find_elements(By.XPATH, ROW_ICON_XPATH)
 
-        for testid in [
-            "titleMainStreamingBuyProviders",
-            "titleMainFreeProviders",
-            "titleMainAllProviders",
-        ]:
-            section = soup.find("div", {"data-testid": testid})
-            if section:
-                for img in section.find_all("img"):
-                    alt = img.get("alt", "").strip()
-                    if alt and alt not in names:
-                        names.append(alt)
-                if names:
-                    break
+        seen_urls = []
+        for img in logos + row:
+            src = img.get_attribute("src")
+            if src and src not in seen_urls:
+                seen_urls.append(src)
+                name = _match_platform_name(src)
+                results.append({"url": src, "name": name})
+            if len(results) >= 3:
+                break
 
-        print(f"  → Streaming found: {names}")
+        print(f"  → Streaming found: {[r['name'] or 'Unknown' for r in results]}")
 
     except Exception as e:
         print(f"  ⚠️  Streaming scrape error: {e}")
 
-    return names[:3]
+    return results[:3]
 
 
 # ── Public entry point ─────────────────────────────────────────────────────
@@ -291,26 +319,21 @@ def scrape(imdb_id: str) -> dict:
         # Inject cookies FIRST — before loading any IMDB page
         _inject_cookies(driver)
 
-        # Scrape main page — reuse soup for cert + streaming
+        # Scrape main page
         print(f"  → Scraping main page …")
-        url  = f"{IMDB_BASE_URL}{imdb_id}/"
-        soup = _get_soup(driver, url)
-        jld  = _extract_json_ld(soup)
-
-        print(f"  → JSON-LD keys: {list(jld.keys())}")
         data = _scrape_main(driver, imdb_id)
         print(f"  → Title: {data.get('TITLE', 'EMPTY')}")
 
-        # Streaming — reuse already loaded page source
+        # Streaming — separate page load with XPath wait
         print(f"  → Scraping streaming platforms …")
-        streaming = _scrape_streaming(soup, imdb_id)
-        data["LOGO_NAME1"] = streaming[0] if len(streaming) > 0 else ""
-        data["LOGO_NAME2"] = streaming[1] if len(streaming) > 1 else ""
-        data["LOGO_NAME3"] = streaming[2] if len(streaming) > 2 else ""
+        streaming = _scrape_streaming(driver, imdb_id)
 
-        data["STREAMING_LOGO1"] = ""
-        data["STREAMING_LOGO2"] = ""
-        data["STREAMING_LOGO3"] = ""
+        data["STREAMING_LOGO1"] = streaming[0]["url"]  if len(streaming) > 0 else ""
+        data["STREAMING_LOGO2"] = streaming[1]["url"]  if len(streaming) > 1 else ""
+        data["STREAMING_LOGO3"] = streaming[2]["url"]  if len(streaming) > 2 else ""
+        data["LOGO_NAME1"]      = streaming[0]["name"] if len(streaming) > 0 else ""
+        data["LOGO_NAME2"]      = streaming[1]["name"] if len(streaming) > 1 else ""
+        data["LOGO_NAME3"]      = streaming[2]["name"] if len(streaming) > 2 else ""
 
         data.setdefault("VR_RATING",  "")
         data.setdefault("SUB_GENRE",  "")
