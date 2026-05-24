@@ -91,7 +91,7 @@ def _get_soup(driver: webdriver.Chrome, url: str) -> BeautifulSoup:
             EC.presence_of_element_located((By.CSS_SELECTOR, "main"))
         )
     except Exception:
-        time.sleep(5)
+        time.sleep(3)
     return BeautifulSoup(driver.page_source, "lxml")
 
 
