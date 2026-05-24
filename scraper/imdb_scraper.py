@@ -49,7 +49,7 @@ def _build_driver() -> webdriver.Chrome:
 def _scrape_main(imdb_id: str) -> dict:
     ia = Cinemagoer()
     numeric_id = imdb_id.lstrip("t")
-    movie = ia.get_movie(numeric_id, info=['main', 'plot', 'ratings', 'vote details'])
+    movie = ia.get_movie(numeric_id, info=['main', 'plot', 'vote details'])
     print(f"  → Raw movie data keys: {list(movie.keys())}")
 
     d = {}
