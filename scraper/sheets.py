@@ -101,7 +101,7 @@ def write_scraped_row(row_number: int, data: dict) -> None:
     votes = _safe_int(data.get("TOTAL_VOTES", ""))
     updated[COL["VOTE_CATEGORY"]] = _vote_category(votes)
 
-    ws.update(f"A{row_number}", [updated])
+    ws.update(f"A{row_number}", [updated], value_input_option="USER_ENTERED")
     print(f"  ✅ Row {row_number} updated — {data.get('TITLE', '')}")
 
 
