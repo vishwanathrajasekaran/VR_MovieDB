@@ -3,14 +3,8 @@
  * Loads MasterSheet data + Platforms from Google Sheets / Apps Script
  */
 
-const SHEETS_CONFIG = {
-  API_KEY:    process.env.VITE_SHEETS_API_KEY,
-  SHEET_ID:   process.env.VITE_SHEET_ID,
-  SHEET_NAME: 'MasterSheet',
-};
-
 const APPS_SCRIPT_BASE = 'https://script.google.com/macros/s/AKfycbwoje62vCYjzEjls-k8IYEL9Xrt2--MN_3-gimrEfxHg7nkt86DXqD0fb6vosK9rZpZTA/exec';
-const SHEETS_URL    = `https://sheets.googleapis.com/v4/spreadsheets/${SHEETS_CONFIG.SHEET_ID}/values/${SHEETS_CONFIG.SHEET_NAME}?key=${SHEETS_CONFIG.API_KEY}`;
+const SHEETS_URL = '/api/movies';
 const PLATFORMS_URL = `${APPS_SCRIPT_BASE}?action=platforms`;
 
 const COL = {
