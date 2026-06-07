@@ -1,7 +1,6 @@
 // VR MovieDB — Service Worker
 // Caches the app shell so it loads instantly and works offline
-
-const CACHE_NAME = 'vr-moviedb-v3';
+const CACHE_NAME = 'vr-moviedb-v4';
 const APP_SHELL  = [
   '/',
   '/index.html',
@@ -32,21 +31,30 @@ self.addEventListener('activate', event => {
 });
 
 self.addEventListener('fetch', event => {
-  const url = event.request.url;
+  const url    = event.request.url;
   const method = event.request.method;
 
-  // NEVER intercept POST requests — let them go straight to network
-  // This is critical for Apps Script saves (no-cors POST)
+  // NEVER intercept POST requests
   if (method === 'POST') return;
 
-  // Google Sheets READ — network first, cache as fallback for offline
+  // NEVER cache API calls — always network first, no fallback
+  // This covers /api/movies (Vercel proxy) and any future API routes
+  if (url.includes('/api/')) {
+    event.respondWith(fetch(event.request));
+    return;
+  }
+
+  // Apps Script — never cache, always pass through
+  if (url.includes('script.google.com')) return;
+
+  // Legacy: sheets.googleapis.com direct calls — network first, cache as offline fallback
   if (url.includes('sheets.googleapis.com')) {
     event.respondWith(
       fetch(event.request)
         .then(resp => {
-          // Only cache valid non-opaque responses
           if (resp && resp.status === 200 && resp.type === 'basic') {
-            caches.open(CACHE_NAME).then(c => c.put(event.request, resp.clone()));
+            const respToCache = resp.clone(); // ← clone BEFORE returning
+            caches.open(CACHE_NAME).then(c => c.put(event.request, respToCache));
           }
           return resp;
         })
@@ -55,19 +63,18 @@ self.addEventListener('fetch', event => {
     return;
   }
 
-  // Apps Script — never cache, always pass through
-  if (url.includes('script.google.com')) return;
-
-  // App shell & static assets — cache first
+  // App shell & static assets — cache first, fallback to network
   event.respondWith(
     caches.match(event.request)
-      .then(cached => cached || fetch(event.request)
-        .then(resp => {
+      .then(cached => {
+        if (cached) return cached;
+        return fetch(event.request).then(resp => {
           if (resp && resp.status === 200 && resp.type !== 'opaque') {
-            caches.open(CACHE_NAME).then(c => c.put(event.request, resp.clone()));
+            const respToCache = resp.clone(); // ← clone BEFORE returning
+            caches.open(CACHE_NAME).then(c => c.put(event.request, respToCache));
           }
           return resp;
-        })
-      )
+        });
+      })
   );
 });
