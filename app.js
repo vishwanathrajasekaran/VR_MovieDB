@@ -472,44 +472,28 @@ function closeEditModal() {
 
 // ── Add Title Modal ───────────────────────────────────────────────
 function openAddModal() {
-  const platformOpts = getPlatforms().map(p =>
-    `<option value="${escHtml(p.name)}">${escHtml(p.name)}</option>`
-  ).join('');
-
   document.getElementById('editModalContent').innerHTML = `
     <div class="edit-form-title">➕ Add New Title</div>
+    <p style="color:var(--muted);font-size:13px;margin:0 0 20px;line-height:1.5;">
+      Enter the IMDb ID below and save. The nightly pipeline will automatically
+      scrape all details and populate the database by the next morning.
+    </p>
     <div class="edit-form" id="editForm">
-      ${ef('Title *','title','','text')}
-      ${ef('IMDb Const (tt…) *','const','','text')}
-      ${ef('Type *','type','Movie','select',['Movie','TV Series','TV Mini Series','TV Movie','Video','Short'])}
-      ${ef('Year','year','','text')}
-      ${ef('Release Date','releaseDate','','date')}
-      ${ef('IMDb Rating','imdbRating','','text')}
-      ${ef('VR Rating *','vrRating','','text')}
-      ${ef('Runtime (mins)','runtime','','text')}
-      ${ef('Episodes','episodes','','text')}
-      ${ef('Languages','languages','','text')}
-      ${ef('Genres','genres','','text')}
-      ${ef('Certification','certification','','text')}
-      <div class="edit-group">
-        <label class="edit-label">Streaming 1</label>
-        <select class="edit-select" data-field="streaming1"><option value="">None</option>${platformOpts}</select>
+      <div class="edit-group full">
+        <label class="edit-label">IMDb ID (tt…) <span style="color:#e6b800">*</span></label>
+        <input
+          class="edit-input"
+          data-field="const"
+          type="text"
+          placeholder="e.g. tt0816692"
+          style="font-size:18px;letter-spacing:1px;"
+          autocomplete="off"
+          spellcheck="false"
+        />
+        <div style="font-size:11px;color:var(--muted);margin-top:6px;">
+          Find it in the IMDb URL: imdb.com/title/<strong>tt0816692</strong>/
+        </div>
       </div>
-      <div class="edit-group">
-        <label class="edit-label">Streaming 2</label>
-        <select class="edit-select" data-field="streaming2"><option value="">None</option>${platformOpts}</select>
-      </div>
-      <div class="edit-group">
-        <label class="edit-label">Streaming 3</label>
-        <select class="edit-select" data-field="streaming3"><option value="">None</option>${platformOpts}</select>
-      </div>
-      ${ef('Cast','cast','','textarea')}
-      ${ef('Directors','directors','','textarea')}
-      ${ef('Writers','writers','','textarea')}
-      ${ef('Plot','plot','','textarea')}
-      ${ef('Poster URL','poster','','text')}
-      ${ef('IMDb URL','url','','text')}
-      ${ef('Date Rated','dateRated', new Date().toISOString().slice(0,10), 'date')}
       <div class="edit-actions">
         <button class="btn btn-save" id="addSaveBtn">➕ Add to Sheet</button>
         <button class="btn btn-cancel" onclick="closeEditModal()">Cancel</button>
@@ -517,41 +501,51 @@ function openAddModal() {
       </div>
     </div>`;
 
+  // Allow Enter key to submit
+  document.querySelector('[data-field="const"]').addEventListener('keydown', e => {
+    if (e.key === 'Enter') saveAdd();
+  });
+
   document.getElementById('addSaveBtn').addEventListener('click', saveAdd);
   document.getElementById('editModal').style.display = 'flex';
   document.body.style.overflow = 'hidden';
+
+  // Auto-focus the input
+  setTimeout(() => document.querySelector('[data-field="const"]')?.focus(), 100);
 }
 
 async function saveAdd() {
-  const form   = document.getElementById('editForm');
-  const saving = document.getElementById('editSaving');
-
-  // Validate required fields
-  const titleEl = form.querySelector('[data-field="title"]');
+  const form    = document.getElementById('editForm');
+  const saving  = document.getElementById('editSaving');
   const constEl = form.querySelector('[data-field="const"]');
-  const vrEl    = form.querySelector('[data-field="vrRating"]');
-  if (!titleEl.value.trim()) { showToast('❌ Title is required'); return; }
-  if (!constEl.value.trim()) { showToast('❌ IMDb Const (tt…) is required'); return; }
-  if (!vrEl.value.trim())    { showToast('❌ VR Rating is required'); return; }
+
+  const imdbId = constEl.value.trim();
+
+  // Validate — only IMDB ID required now
+  if (!imdbId) {
+    showToast('❌ IMDb ID is required');
+    constEl.focus();
+    return;
+  }
+  if (!imdbId.startsWith('tt') || !/^tt\d+$/.test(imdbId)) {
+    showToast('❌ Must be a valid IMDb ID, e.g. tt0816692');
+    constEl.focus();
+    return;
+  }
+
+  // Check for duplicates in current in-memory data
+  if (MOVIES_DATA.some(r => r.const === imdbId)) {
+    showToast('⚠️ This IMDb ID already exists in your database');
+    constEl.focus();
+    return;
+  }
 
   saving.classList.add('visible');
 
+  // Build a minimal row — only the Const column (col 26) is set
+  // All other fields are left blank for the nightly scraper to fill
   const rowData = {};
-  form.querySelectorAll('[data-field]').forEach(el => {
-    const colIdx = COL_MAP[el.dataset.field];
-    if (colIdx !== undefined) {
-      rowData[colIdx] = el.dataset.datepicker ? toSheetDate(el.value) : el.value;
-    }
-  });
-
-  // Auto-fill streaming logo URLs
-  ['streaming1','streaming2','streaming3'].forEach((field,i) => {
-    const nameEl = form.querySelector(`[data-field="${field}"]`);
-    if (!nameEl) return;
-    const p = getPlatforms().find(p => p.name === nameEl.value);
-    const logoIdx = COL_MAP[`streamingLogo${i+1}`];
-    if (logoIdx !== undefined) rowData[logoIdx] = p ? p.logoUrl : '';
-  });
+  rowData[COL_MAP.const] = imdbId;
 
   try {
     await fetch(APPS_SCRIPT_URL, {
@@ -560,17 +554,17 @@ async function saveAdd() {
       body: JSON.stringify({ action:'addRow', rowData }),
     });
 
-    // Add to in-memory data at front
-    const newItem = {};
-    Object.entries(rowData).forEach(([colIdx, val]) => {
-      const field = Object.keys(COL_MAP).find(k => COL_MAP[k]===parseInt(colIdx));
-      if (field) newItem[field] = val;
-    });
-    MOVIES_DATA.unshift(newItem);
+    // Add a placeholder entry to in-memory data so the UI reflects it
+    // The scraper will fill the real data overnight
+    const placeholder = {};
+    Object.keys(COL_MAP).forEach(k => placeholder[k] = '');
+    placeholder.const = imdbId;
+    placeholder.title = `⏳ Pending — ${imdbId}`;
+    MOVIES_DATA.unshift(placeholder);
 
     saving.classList.remove('visible');
     closeEditModal();
-    showToast('✅ Title added to sheet!');
+    showToast(`✅ ${imdbId} queued! Nightly pipeline will scrape details.`);
     applyFilters();
   } catch(err) {
     saving.classList.remove('visible');
