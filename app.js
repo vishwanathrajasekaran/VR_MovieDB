@@ -472,6 +472,7 @@ function closeEditModal() {
 
 // ── Add Title Modal ───────────────────────────────────────────────
 function openAddModal() {
+  const today = new Date().toISOString().slice(0, 10);
   document.getElementById('editModalContent').innerHTML = `
     <div class="edit-form-title">➕ Add New Title</div>
     <p style="color:var(--muted);font-size:13px;margin:0 0 20px;line-height:1.6;">
@@ -493,17 +494,32 @@ function openAddModal() {
           Find it in the IMDb URL: imdb.com/title/<strong>tt0816692</strong>/
         </div>
       </div>
+      <div class="edit-group">
+        <label class="edit-label">VR Rating <span style="color:#e6b800">*</span></label>
+        <input
+          class="edit-input"
+          data-field="vrRating"
+          type="number"
+          min="0" max="10" step="0.1"
+          placeholder="0 – 10"
+        />
+      </div>
+      <div class="edit-group">
+        <label class="edit-label">Date Rated <span style="color:#e6b800">*</span></label>
+        <input
+          class="edit-input edit-date"
+          data-field="dateRated"
+          data-datepicker="true"
+          type="date"
+          value="${today}"
+        />
+      </div>
       <div class="edit-actions">
         <button class="btn btn-save" id="addSaveBtn">➕ Add to Sheet</button>
         <button class="btn btn-cancel" onclick="closeEditModal()">Cancel</button>
         <div class="edit-saving" id="editSaving"><div class="saving-spinner"></div> Saving…</div>
       </div>
     </div>`;
-
-  // Enter key submits
-  document.querySelector('[data-field="const"]').addEventListener('keydown', e => {
-    if (e.key === 'Enter') saveAdd();
-  });
 
   document.getElementById('addSaveBtn').addEventListener('click', saveAdd);
   document.getElementById('editModal').style.display = 'flex';
@@ -514,12 +530,16 @@ function openAddModal() {
 }
 
 async function saveAdd() {
-  const form    = document.getElementById('editForm');
-  const saving  = document.getElementById('editSaving');
-  const constEl = form.querySelector('[data-field="const"]');
-  const imdbId  = constEl.value.trim();
+  const form      = document.getElementById('editForm');
+  const saving    = document.getElementById('editSaving');
+  const constEl   = form.querySelector('[data-field="const"]');
+  const vrEl      = form.querySelector('[data-field="vrRating"]');
+  const dateEl    = form.querySelector('[data-field="dateRated"]');
+  const imdbId    = constEl.value.trim();
+  const vrRating  = vrEl.value.trim();
+  const dateRated = dateEl.value.trim();
 
-  // Validate
+  // Validate IMDb ID
   if (!imdbId) {
     showToast('❌ IMDb ID is required');
     constEl.focus();
@@ -528,6 +548,26 @@ async function saveAdd() {
   if (!/^tt\d+$/.test(imdbId)) {
     showToast('❌ Must be a valid IMDb ID — e.g. tt0816692');
     constEl.focus();
+    return;
+  }
+
+  // Validate VR Rating
+  if (!vrRating) {
+    showToast('❌ VR Rating is required');
+    vrEl.focus();
+    return;
+  }
+  const vrNum = parseFloat(vrRating);
+  if (isNaN(vrNum) || vrNum < 0 || vrNum > 10) {
+    showToast('❌ VR Rating must be between 0 and 10');
+    vrEl.focus();
+    return;
+  }
+
+  // Validate Date Rated
+  if (!dateRated) {
+    showToast('❌ Date Rated is required');
+    dateEl.focus();
     return;
   }
 
@@ -540,9 +580,11 @@ async function saveAdd() {
 
   saving.classList.add('visible');
 
-  // Only send Const column — scraper fills everything else overnight
+  // Send Const + VR Rating + Date Rated — scraper fills everything else overnight
   const rowData = {};
-  rowData[COL_MAP.const] = imdbId;
+  rowData[COL_MAP.const]      = imdbId;
+  rowData[COL_MAP.vrRating]   = vrRating;
+  rowData[COL_MAP.dateRated]  = toSheetDate(dateRated);
 
   try {
     await fetch(APPS_SCRIPT_URL, {
